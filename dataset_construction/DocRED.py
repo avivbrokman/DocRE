@@ -14,6 +14,7 @@ import torch
 from dataclasses import dataclass, field
 from Levenshtein import distance
 from typing import Optional
+from itertools import combinations, product
 
 from utils import make_dir, unlist
 
@@ -55,16 +56,33 @@ from utils import make_dir, unlist
 # EntityPair?/Relation?
 # Example
 # Dataset
-
+#%%
 @dataclass
 class Token:
     string: str
     in_sentence_index: int
     index: int
-    tokenizer: str
     tokenizer_indices: int
     parent_sentence: Sentence
 
+    def _get_subword_tokens(self):
+        tokenizer = self.parent_sentence.parent_example.parent_dataset.tokenizer
+        self.subword_tokens = tokenizer.encode(self.string, add_special_tokens = False)
+
+    def _get_subword_indices(self):
+        # start = sum(len(el.subword_tokens) for el in self.parent_sentence.tokens[:index]) - 1
+        if self.index == 0
+            start = 0
+        else:
+            start = self.parent_sentence[index - 1]
+        end = start + num_subwords
+        self.subword_indices = (start, end)
+
+
+    def __post_init__(self):
+        self._get_subword_tokens()
+        self._get_subword_indices()
+#%%
 @dataclass(frozen = True)
 class Span:
     tokens: list[Token]
@@ -80,7 +98,10 @@ class Span:
         self.parent_sentence = self.tokens[0].parent_sentence
 
     def _get_string(self):
-        self.string = [el.string for el in self.tokens].join(' ')  
+        self.string = [el.string for el in self.tokens].join(' ') 
+
+    def _get_subword_indices(self):
+        self.subword_indices = (self.tokens[0].subword_indices[0], self.tokens[-1].subword_indices[1])
 
     def __len__(self):
         return len(range(*self.indices))
@@ -162,7 +183,9 @@ class Span:
         self._get_indices()
         self._get_parent_sentence()
         self._get_string()
+        self._get_subword_indices()
 
+#%%
 @dataclass
 class Sentence:
     tokens: list[Token]
@@ -170,11 +193,17 @@ class Sentence:
     parent_example: Example
 
     def candidate_spans(self, max_length):
-        for el in 
+        spans = set()
+        for el1, el2 in combinations(self.tokens, 2):
+            span = Span((el1.index, el2.index))
+            if len(span) <= max_length:
+                spans.add(span)
+
+        return spans
 
     def __len__(self):
         return len(self.tokens)
-
+#%%
 @dataclass
 class SpanPair:
     span1: Span
@@ -182,6 +211,26 @@ class SpanPair:
     parent_example: Example
     coref: Optional[int]
 
+    def levenshtein_distance(self):
+        return self.span1.lenvenshtein_distance(self.span2)
+
+    def length_difference(self):
+        return abs(len(self.span1.string) - len(self.span2.string))
+
+    def token_distance(self):
+        return self.span1.token_distance(self.span2)
+
+    def sentence_distance(self):
+        return self.span1.sentence_distance(self.span2)
+
+    def intervening_span(self):
+        return self.span1.intervening_span(self.span2)
+
+
+    # def __hash__(self):
+    #     return hash((span1, span2))
+
+#%%
 @dataclass
 class ClassConverter:
     classes: list[str]
@@ -190,6 +239,8 @@ class ClassConverter:
         self.class2index = dict(zip(self.classes, range(len(self.classes))))
         self.index2class = dict(zip(range(len(self.classes)), self.classes))
 
+#%%
+
 @dataclass
 class Cluster:
     spans: set[Span]
@@ -197,8 +248,67 @@ class Cluster:
     parent_example: Example
     class_converter: Optional[ClassConverter]
 
+    def __len__(self):
+        return len(spans)
+    
+    def __hash__(self):
+        return hash(spans)
+
+    def pos_span_pairs(self):
+       return [SpanPair(el1, el2) for el1, el2 in combinations(self.spans, 2)]
+
+    def neg_span_pairs_cluster(self, other):
+        return [SpanPair(el1, el2) for el1, el2 in product(self.spans, other.spans)]
+
+    def neg_span_pairs(self, others):
+        return unlist([self.neg_span_pairs_cluster(el) for el in others])
+
     def __post_init__(self):
         self.class_index = self.class_converter.class2index[self.class]
+
+#%%
+
+@dataclass
+class ClusterPair:
+    head: Cluster
+    tail: Cluster
+    parent_example: Example
+
+    relation_type: Optional[str]
+
+    def __hash__(self):
+        return hash((head, tail, relation_type))
+
+    def relation_type_negatives(self):
+        '''This will be too many negatives. Want to filter out less common relation_types somehow'''
+        
+        relation_types = class_converter.class2ix.keys()
+        return set(ClusterPair(self.head, self.tail, el) for el in relation_types)
+
+    def cluster_negatives_cluster(self, cluster, head_or_tail):
+        if head_or_tail == 'head':
+            return ClusterPair(cluster, self.tail, self.relation_type)
+        elif head_or_tail == 'tail':
+            return ClusterPair(self.head, cluster, self.relation_type)
+
+    def cluster_negatives(self):
+        clusters = self.parent_example.clusters - set([self.head, self.tail])
+        hard_head_mutations = set(self.cluster_negatives_cluster(el, 'head') for el in clusters if self.el.class == self.head.class)
+        hard_tail_mutations = set(self.cluster_negatives_cluster(el, 'tail') for el in clusters if self.el.class == self.tail.class)
+        
+        return hard_head_mutations | hard_tail_mutations
+
+    def negative_cluster_pairs(self):
+        negative_pairs = set()
+        if self.parent_example.parent_dataset.relation_class_converter:
+            negative_pairs.update(self.relation_type_negatives())
+        negative_pairs.update(self.cluster_negatives())
+        return list(negative_pairs)
+
+    def enumerate_span_pairs(self):
+        return [SpanPair(el1, el2) for el1, el2 in product(self.head.spans, self.tail.spans)]
+
+#%%
 
 @dataclass
 class Example:
@@ -207,46 +317,76 @@ class Example:
     sentences: list[Sentence]
 
     ### NER
-    # train
     positive_spans: list[Span]
     
-    # eval
-    candidate_spans: list[Span]
-
     ### Cluster
-    # train
-    positive_span_pairs: list[SpanPair]
-    negative_span_pairs: list[SpanPair]
+    clusters: set[Cluster]
 
     ### RC
-    # train
-    positive_entity_pairs: list[ClusterPair]
-    negative_entity_pairs: list[ClusterPair]
+    positive_cluster_pairs: list[ClusterPair]
+
+    ### other
+    parent_dataset: Dataset
 
     def _get_negative_spans(self):
         negative_span_list = [el.negative_spans() for el in self.positive_spans] 
-        negative_spans = set.union(*negative_span_list)
+        self.negative_spans = set.union(*negative_span_list)
         
-        return negative_spans
-
     def _get_candidate_spans(self):
+        self.candidate_spans = set()
+        for el in self.sentences:
+            self.candidate_spans.add(el.candidate_spans())
+
+    def _get_positive_span_pairs(self):
+        self.positive_span_pairs = unlist([el.pos_span_pairs() for el in self.clusters()])
         
+    def _get_negative_span_pairs(self):
+        self.negative_span_pairs = unlist([el.neg_span_pairs() for el in self.clusters()])
+
+    def _get_negative_cluster_pairs(self):
+        self.negative_cluster_pairs = unlist([el.negative_cluster_pairs() for el in self.positive_cluster_pairs])
 
     def __len__(self):
         return len(self.tokens)
 
     def _get_tokens(self):
-        self.tokens = unlist(el.tokens for el in self.sentences)
+        self.tokens = unlist([el.tokens for el in self.sentences])
+
+    def _get_subword_tokens(self):
+        self.subword_tokens = unlist([el.subword_tokens for el in self.tokens])
 
     def __post_init__(self):
         self._get_tokens()
+        self._get_negative_spans()
+        self._get_candidate_spans()
+        self._get_positive_span_pairs()
+        self._get_negative_span_pairs()
+        self._get_negative_cluster_pairs()
+        self._get_subword_tokens()
 
+#%%
 @dataclass
 class Dataset:
 
     examples: list[Example]
+    tokenizer: ...
+    entity_types: Optional[list[str]]
+    relation_types: Optional[list[str]]
+
+    def _get_type_converter(self, types):
+        types.append('NA')
+        return ClassConverter(types)
+
+    
 
 
+    def __post_init__(self):
+        if self.entity_types:
+            self.entity_type_converter = self._get_type_converter(self.entity_types)
+        if self.relation_types:
+            self.relation_type_converter = self._get_type_converter(self.relation_types)
+        
+#%% 
 
 
 

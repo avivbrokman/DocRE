@@ -44,3 +44,10 @@ def mode(values):
     max_count = max(counts.values())
     modes = [s for s, count in counts.items() if count == max_count]
     return random.choice(modes)  
+
+def apply(fun):
+    
+    def list_version_of_fun(_list):
+        return [fun(el) for el in _list]
+
+    return list_version_of_fun
