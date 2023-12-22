@@ -16,6 +16,7 @@ class DocREDWord:
     annotation: str
     in_sentence_index: int
     parent_sentence: ...
+    Token: Token = None
     
 
     def _get_index(self):
@@ -26,16 +27,16 @@ class DocREDWord:
         self._get_index()
 
     def return_Token(self):
-    
-        parent_sentence = 
-
-        return Token(self.annotation, self.in_sentence_index, self.index, parent_sentence)
+        if not self.Token:
+            parent_Sentence = self.parent_sentence.Sentence
+            return Token(self.annotation, self.in_sentence_index, self.index, parent_Sentence)
 #%% DocREDSentence        
 @dataclass
 class DocREDSentence:
     annotation: List[str]
     index: int
     parent_example: ...
+    Sentence: Sentence = None
 
     def _get_words(self):
         self.words = [DocREDWord(el, i, self) for i, el in enumerate(self.annotation)]
@@ -50,9 +51,10 @@ class DocREDSentence:
         self._get_words()
 
     def return_Sentence(self):
-        tokens = [el.return_Token() for el in self.annotation]
-        parent_example = 
-        return Sentence(tokens, self.index, parent_example)
+        if not self.Sentence:
+            tokens = [el.return_Token() for el in self.annotation]
+            parent_Example = self.parent_example.Example
+            return Sentence(tokens, self.index, parent_Example)
 
 #%% DocREDMention
 @dataclass
@@ -61,6 +63,7 @@ class DocREDMention:
     annotation: ...
     
     parent_entity: ...
+    Span: Span = None
 
     def _get_string(self):
         self.string = self.annotation['name']
@@ -90,11 +93,11 @@ class DocREDMention:
         self._get_span()
 
     def return_Span(self):
-        # tokens = [el.return_Token() for el in self.words]
-        parent_example = 
-        sentence = parent_example.sentences[self.sentence_index]
-        tokens = sentence.tokens[self.in_sentence_word_span[0]:self.in_sentence_word_span[1]]
-        return Span(tokens, self.type)
+        if not self.Span:
+            parent_example = self.parent_entity.parent_example.Example
+            sentence = parent_example.sentences[self.sentence_index]
+            tokens = sentence.tokens[self.in_sentence_word_span[0]:self.in_sentence_word_span[1]]
+            return Span(tokens, self.type)
 
 #%% DocREDEntity
 @dataclass
@@ -103,6 +106,7 @@ class DocREDEntity:
     annotation: ...
 
     parent_example: ...
+    Cluster: Cluster = None
 
     def _get_mentions(self):
         self.mentions = list(DocREDMention(el, self) for el in self.annotation)
@@ -122,9 +126,10 @@ class DocREDEntity:
         self._get_type()
 
     def return_Cluster(self, class_converter):
-        spans = set(el.return_Span() for el in self.mentions)
-        parent_example = 
-        return Cluster(spans, self.type, parent_example)
+        if not self.Cluster:
+            spans = set(el.return_Span() for el in self.mentions)
+            parent_Example = self.parent_example.Example
+            return Cluster(spans, self.type, parent_Example)
 
 #%% DocREDRelation
 @dataclass
@@ -135,6 +140,7 @@ class DocREDRelation:
     type: str
 
     parent_example: ...
+    ClusterPair: ClusterPair = None
     
     def _get_entities(self):
         self.head = self.parent_example.entities[self.head_index]
@@ -146,15 +152,17 @@ class DocREDRelation:
     def return_ClusterPair(self):
         head = self.head.return_Cluster()
         tail = self.tail.return_Cluster()
-        parent_example = 
         relation_type = self.type
+        parent_Example = self.parent_example.Example
 
-        return ClusterPair(head, tail, parent_example, relation_type)
+        return ClusterPair(head, tail, parent_Example, relation_type)
 #%% DocREDExample
 @dataclass
 class DocREDExample:
 
     annotation: ...
+    parent_dataset: ...
+    Example: Example = None
 
     '''
     tokens
@@ -203,11 +211,14 @@ class DocREDExample:
     #     return Example(sentences, clusters, positive_cluster_pairs, parent_dataset)
 
     def return_Example(self):
-        sentences = [el.return_Sentence() for el in self.sentences]
-        clusters = [el.return_Cluster() for el in self.entities]
-        positive_cluster_pairs = [el.return_ClusterPair() for el in self.relations]
+        if not self.Example:
+            sentences = [el.return_Sentence() for el in self.sentences]
+            clusters = [el.return_Cluster() for el in self.entities]
+            positive_cluster_pairs = [el.return_ClusterPair() for el in self.relations]
+            parent_Dataset = self.parent_dataset.Dataset
+            
+            return Example(sentences, clusters, positive_cluster_pairs, parent_Dataset)
         
-        return Example(sentences, clusters, positive_cluster_pairs, parent_dataset)
 #%% DocREDDataset
 @dataclass
 class DocREDDataset:
@@ -215,9 +226,10 @@ class DocREDDataset:
     huggingface_dataset: ...
     # relation_type_converter: Optional[dict] = field(default = None)
     # counts_save_filename: Optional[dict] = field(default = 'data/processed/DocRED/relation_type_counts.json')
+    Dataset: Dataset = None
                 
     def _get_examples(self):
-        self.examples = [DocREDExample(el) for el in self.huggingface_dataset]
+        self.examples = [DocREDExample(el, self) for el in self.huggingface_dataset]
 
     def get_entity_types(self):
         counts = Counter()
@@ -266,10 +278,9 @@ class DocREDDataset:
         # self._convert_relation_types()
 
     def return_Dataset(self, tokenizer, entity_types, relation_types):
-        examples = [el.return_Example() for el in self.examples]        
-        dataset = Dataset(None, tokenizer, entity_types, relations_types)
-        dataset.examples = examples
-        return dataset
+        if not self.Dataset:
+            examples = [el.return_Example() for el in self.examples]        
+            self.Dataset(examples, tokenizer, entity_types, relations_types)
 
     # def return_Dataset(self, tokenizer, entity_types, relation_types):
     #     examples = [el.return_Example() for el in self.examples]        
@@ -277,29 +288,37 @@ class DocREDDataset:
     #     return Dataset(examples, tokenizer, entity_types, relation_types)
 
 #%% processing
+# make data paths and directories
 output_data_path = 'data/processed/DocRED'
 make_dir(output_data_path)
 
+# load dataset from hugginface
 huggingface_dataset = load_dataset('docred')
 
+# make all splits of dataset
 train_data = huggingface_dataset['train_annotated']
 valid_data = huggingface_dataset['validation']
 test_data = huggingface_dataset['test']
 
+train_valid_data = concatenate_datset([train_data, valid_data])
 full_data = concatenate_datasets([train_data, valid_data, test_data])
 
+# processes full dataset to get complete list of entity types and relation types
 full_data = DocREDDataset(full_data)
 entity_types = full_data.get_entity_types()
 relation_types = full_data.get_relation_types()
 
+# processes all datasets
 print('train')
 train_data = DocREDDataset(train_data)
 print('valid')
 valid_data = DocREDDataset(valid_data)
 print('test')
 test_data = DocREDDataset(test_data)
+print('train + valid')
+train_valid_data = DocREDDataset()
 
-#%%
+#%% More processing
 # relation_combinations_train = train_data.analyze_relations()
 # relation_combinations_valid = valid_data.analyze_relations()
 # relation_combinations_test = test_data.analyze_relations()
@@ -307,15 +326,19 @@ test_data = DocREDDataset(test_data)
 # torch.save(relation_combinations_valid, os.path.join(output_data_path, 'relation_combinations_valid.save'))
 # torch.save(relation_combinations_test, os.path.join(output_data_path, 'relation_combinations_test.save'))
 
-#%%
+#%% More processing
+# converts processed datasets into modeling datasets
 train_data = train_data.return_Dataset()
 valid_data = valid_data.return_Dataset()
 test_data = test_data.return_Dataset()
+train_valid_data = train_valid_data.return_Dataset()
 
+# Saves everything
 torch.save(entity_types, os.path.join(output_data_path,'entity_types.save'))
 torch.save(relation_types, os.path.join(output_data_path,'relation_types.save'))
 
 torch.save(train_data, os.path.join(output_data_path,'train_data.save'))    
 torch.save(valid_data, os.path.join(output_data_path,'valid_data.save'))    
 torch.save(test_data, os.path.join(output_data_path,'test_data.save'))   
+torch.save(train_valid_data, os.path.join(output_data_path,'train_valid_data.save'))   
 

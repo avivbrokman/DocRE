@@ -369,7 +369,7 @@ class Example:
         self._get_negative_cluster_pairs()
         self._get_subword_tokens()
 
-#%% Dataset
+#%% Dataset 
 @dataclass
 class Dataset:
 
@@ -389,19 +389,3 @@ class Dataset:
             self.entity_type_converter = self._get_type_converter(self.entity_types)
         if self.relation_types:
             self.relation_type_converter = self._get_type_converter(self.relation_types)
-
-
-
-
-
-#%% run
-data_input_dir = 'data/processed/DocRED'
-data_output_dir = 'data/modeling/DocRED'
-
-make_dir(data_output_dir)
-
-
-entity_types = torch.load(os.path.join(data_input_dir, 'entity_types.save'))
-relation_types = torch.load(os.path.join(data_input_dir, 'relation_types.save'))
-train_data = torch.load(os.path.join(data_input_dir, 'train_data.save'))
-
