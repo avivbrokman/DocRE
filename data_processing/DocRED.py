@@ -195,11 +195,17 @@ class DocREDExample:
         self._get_entities()
         self._get_relations()
 
+    # def return_Example(self):
+    #     sentences = [el.return_Sentence() for el in self.sentences]
+    #     clusters = [el.return_Cluster() for el in self.entities]
+    #     positive_cluster_pairs = [el.return_ClusterPair() for el in self.relations]
+        
+    #     return Example(sentences, clusters, positive_cluster_pairs, parent_dataset)
+
     def return_Example(self):
         sentences = [el.return_Sentence() for el in self.sentences]
         clusters = [el.return_Cluster() for el in self.entities]
         positive_cluster_pairs = [el.return_ClusterPair() for el in self.relations]
-        parent_dataset = 
         
         return Example(sentences, clusters, positive_cluster_pairs, parent_dataset)
 #%% DocREDDataset
@@ -260,9 +266,15 @@ class DocREDDataset:
         # self._convert_relation_types()
 
     def return_Dataset(self, tokenizer, entity_types, relation_types):
-        examples = [el.return_Example(QQQ) for el in self.examples]        
+        examples = [el.return_Example() for el in self.examples]        
+        dataset = Dataset(None, tokenizer, entity_types, relations_types)
+        dataset.examples = examples
+        return dataset
 
-        return Dataset(examples, tokenizer, entity_types, relation_types)
+    # def return_Dataset(self, tokenizer, entity_types, relation_types):
+    #     examples = [el.return_Example() for el in self.examples]        
+        
+    #     return Dataset(examples, tokenizer, entity_types, relation_types)
 
 #%% processing
 output_data_path = 'data/processed/DocRED'
