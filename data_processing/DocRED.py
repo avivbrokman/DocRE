@@ -1,7 +1,7 @@
 #%% libraries
 import os
 from dataclasses import dataclass, field
-from datasets import load_dataset
+from datasets import load_dataset, concatenate_datasets
 import torch
 from typing import List, Optional
 from collections import Counter
@@ -10,7 +10,7 @@ import json
 from utils import make_dir, unlist, mode, save_json
 # from universal_classes import Mention, Entity, Relation, Example, Dataset
 
-#%% classes
+#%% DocREDWord
 @dataclass
 class DocREDWord:
     annotation: str
@@ -24,7 +24,13 @@ class DocREDWord:
 
     def __post_init__(self):
         self._get_index()
-        
+
+    def return_Token(self):
+    
+        parent_sentence = 
+
+        return Token(self.annotation, self.in_sentence_index, self.index, parent_sentence)
+#%% DocREDSentence        
 @dataclass
 class DocREDSentence:
     annotation: List[str]
@@ -43,6 +49,12 @@ class DocREDSentence:
     def __post_init__(self):
         self._get_words()
 
+    def return_Sentence(self):
+        tokens = [el.return_Token() for el in self.annotation]
+        parent_example = 
+        return Sentence(tokens, self.index, parent_example)
+
+#%% DocREDMention
 @dataclass
 class DocREDMention:
 
@@ -77,6 +89,14 @@ class DocREDMention:
         self._get_words()
         self._get_span()
 
+    def return_Span(self):
+        # tokens = [el.return_Token() for el in self.words]
+        parent_example = 
+        sentence = parent_example.sentences[self.sentence_index]
+        tokens = sentence.tokens[self.in_sentence_word_span[0]:self.in_sentence_word_span[1]]
+        return Span(tokens, self.type)
+
+#%% DocREDEntity
 @dataclass
 class DocREDEntity:
 
@@ -101,6 +121,12 @@ class DocREDEntity:
         self._get_mentions()
         self._get_type()
 
+    def return_Cluster(self, class_converter):
+        spans = set(el.return_Span() for el in self.mentions)
+        parent_example = 
+        return Cluster(spans, self.type, parent_example)
+
+#%% DocREDRelation
 @dataclass
 class DocREDRelation:
     
@@ -113,11 +139,18 @@ class DocREDRelation:
     def _get_entities(self):
         self.head = self.parent_example.entities[self.head_index]
         self.tail = self.parent_example.entities[self.tail_index]
-    
 
     def __post_init__(self):
         self._get_entities()
 
+    def return_ClusterPair(self):
+        head = self.head.return_Cluster()
+        tail = self.tail.return_Cluster()
+        parent_example = 
+        relation_type = self.type
+
+        return ClusterPair(head, tail, parent_example, relation_type)
+#%% DocREDExample
 @dataclass
 class DocREDExample:
 
@@ -162,41 +195,74 @@ class DocREDExample:
         self._get_entities()
         self._get_relations()
 
+    def return_Example(self):
+        sentences = [el.return_Sentence() for el in self.sentences]
+        clusters = [el.return_Cluster() for el in self.entities]
+        positive_cluster_pairs = [el.return_ClusterPair() for el in self.relations]
+        parent_dataset = 
+        
+        return Example(sentences, clusters, positive_cluster_pairs, parent_dataset)
+#%% DocREDDataset
 @dataclass
 class DocREDDataset:
     
     huggingface_dataset: ...
-    relation_type_converter: Optional[dict] = field(default = None)
-    counts_save_filename: Optional[dict] = field(default = 'data/processed/DocRED/relation_type_counts.json')
+    # relation_type_converter: Optional[dict] = field(default = None)
+    # counts_save_filename: Optional[dict] = field(default = 'data/processed/DocRED/relation_type_counts.json')
                 
     def _get_examples(self):
         self.examples = [DocREDExample(el) for el in self.huggingface_dataset]
 
-    def _get_relation_type_converter(self):
-        relations = unlist([el.relations for el in self.examples])
-        types = [el.type for el in relations]
-        counts = Counter(types)
-        save_json(counts, self.counts_save_filename)
-        
+    def get_entity_types(self):
+        counts = Counter()
+        for el_ex in self.examples:
+            for el_ent in el_ex.entities:
+                counts.update([el_ent.type])
         counts = counts.most_common()
-        relation_types_by_frequency = list(zip(*counts))[0]
+        types = list(zip(*counts))[0]
+        
+        return types
+        
+    def get_relation_types(self):
+        counts = Counter()
+        for el_ex in self.examples:
+            for el_rel in el_ex.relations:
+                counts.update([el_rel.type])
+        counts = counts.most_common()
+        types = list(zip(*counts))[0]
+        
+        return types 
 
-        self.relation_type_converter = dict(zip(relation_types_by_frequency, range(len(relation_types_by_frequency))))
+    # def _get_relation_type_converter(self):
+    #     relations = unlist([el.relations for el in self.examples])
+    #     types = [el.type for el in relations]
+    #     counts = Counter(types)
+    #     save_json(counts, self.counts_save_filename)
+        
+    #     counts = counts.most_common()
+    #     relation_types_by_frequency = list(zip(*counts))[0]
+
+    #     self.relation_type_converter = dict(zip(relation_types_by_frequency, range(len(relation_types_by_frequency))))
     
-    def _convert_relation_types(self):
-        relations = unlist([el.relations for el in self.examples])
-        for el in relations:
-            el.type_index = self.relation_type_converter[el.type]
+    # def _convert_relation_types(self):
+    #     relations = unlist([el.relations for el in self.examples])
+    #     for el in relations:
+    #         el.type_index = self.relation_type_converter[el.type]
 
-    def analyze_relations(self):
-        relations = unlist([el.relations for el in self.examples])
-        return [(el.head.type, el.tail.type, el.type, el.type_index) for el in relations]
+    # def analyze_relations(self):
+    #     relations = unlist([el.relations for el in self.examples])
+    #     return [(el.head.type, el.tail.type, el.type, el.type_index) for el in relations]
 
     def __post_init__(self):
         self._get_examples()
-        if not self.relation_type_converter:
-            self._get_relation_type_converter()
-        self._convert_relation_types()
+        # if not self.relation_type_converter:
+        #     self._get_relation_type_converter()
+        # self._convert_relation_types()
+
+    def return_Dataset(self, tokenizer, entity_types, relation_types):
+        examples = [el.return_Example(QQQ) for el in self.examples]        
+
+        return Dataset(examples, tokenizer, entity_types, relation_types)
 
 #%% processing
 output_data_path = 'data/processed/DocRED'
@@ -208,25 +274,34 @@ train_data = huggingface_dataset['train_annotated']
 valid_data = huggingface_dataset['validation']
 test_data = huggingface_dataset['test']
 
+full_data = concatenate_datasets([train_data, valid_data, test_data])
+
+full_data = DocREDDataset(full_data)
+entity_types = full_data.get_entity_types()
+relation_types = full_data.get_relation_types()
+
 print('train')
 train_data = DocREDDataset(train_data)
 print('valid')
-valid_data = DocREDDataset(valid_data, train_data.relation_type_converter)
+valid_data = DocREDDataset(valid_data)
 print('test')
-test_data = DocREDDataset(test_data, train_data.relation_type_converter)
+test_data = DocREDDataset(test_data)
 
 #%%
-relation_combinations_train = train_data.analyze_relations()
-relation_combinations_valid = valid_data.analyze_relations()
-relation_combinations_test = test_data.analyze_relations()
-torch.save(relation_combinations_train, os.path.join(output_data_path, 'relation_combinations_train.save'))
-torch.save(relation_combinations_valid, os.path.join(output_data_path, 'relation_combinations_valid.save'))
-torch.save(relation_combinations_test, os.path.join(output_data_path, 'relation_combinations_test.save'))
+# relation_combinations_train = train_data.analyze_relations()
+# relation_combinations_valid = valid_data.analyze_relations()
+# relation_combinations_test = test_data.analyze_relations()
+# torch.save(relation_combinations_train, os.path.join(output_data_path, 'relation_combinations_train.save'))
+# torch.save(relation_combinations_valid, os.path.join(output_data_path, 'relation_combinations_valid.save'))
+# torch.save(relation_combinations_test, os.path.join(output_data_path, 'relation_combinations_test.save'))
 
 #%%
 train_data = train_data.return_Dataset()
 valid_data = valid_data.return_Dataset()
 test_data = test_data.return_Dataset()
+
+torch.save(entity_types, os.path.join(output_data_path,'entity_types.save'))
+torch.save(relation_types, os.path.join(output_data_path,'relation_types.save'))
 
 torch.save(train_data, os.path.join(output_data_path,'train_data.save'))    
 torch.save(valid_data, os.path.join(output_data_path,'valid_data.save'))    

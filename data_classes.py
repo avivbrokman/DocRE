@@ -56,13 +56,13 @@ from utils import make_dir, unlist
 # EntityPair?/Relation?
 # Example
 # Dataset
-#%%
+#%% Token
 @dataclass
 class Token:
     string: str
     in_sentence_index: int
     index: int
-    tokenizer_indices: int
+    # tokenizer_indices: int
     parent_sentence: Sentence
 
     def _get_subword_tokens(self):
@@ -82,11 +82,11 @@ class Token:
     def __post_init__(self):
         self._get_subword_tokens()
         self._get_subword_indices()
-#%%
+#%% Span
 @dataclass(frozen = True)
 class Span:
     tokens: list[Token]
-    class: Optional[str]
+    type: Optional[str]
 
     def _get_in_sentence_indices(self):
         self.in_sentence_indices = (tokens[0].in_sentence_index, tokens[-1].in_sentence_index + 1)
@@ -185,7 +185,7 @@ class Span:
         self._get_string()
         self._get_subword_indices()
 
-#%%
+#%% Sentence
 @dataclass
 class Sentence:
     tokens: list[Token]
@@ -203,7 +203,7 @@ class Sentence:
 
     def __len__(self):
         return len(self.tokens)
-#%%
+#%% SpanPair
 @dataclass
 class SpanPair:
     span1: Span
@@ -230,7 +230,7 @@ class SpanPair:
     # def __hash__(self):
     #     return hash((span1, span2))
 
-#%%
+#%% ClassConverter
 @dataclass
 class ClassConverter:
     classes: list[str]
@@ -239,12 +239,11 @@ class ClassConverter:
         self.class2index = dict(zip(self.classes, range(len(self.classes))))
         self.index2class = dict(zip(range(len(self.classes)), self.classes))
 
-#%%
-
+#%% Cluster
 @dataclass
 class Cluster:
     spans: set[Span]
-    class: Optional[str]
+    type: Optional[str]
     parent_example: Example
     class_converter: Optional[ClassConverter]
 
@@ -264,10 +263,10 @@ class Cluster:
         return unlist([self.neg_span_pairs_cluster(el) for el in others])
 
     def __post_init__(self):
-        self.class_index = self.class_converter.class2index[self.class]
+        # self.class_index = self.class_converter.class2index[self.type]
+        self.class_index = self.parent_example.parent_dataset.entity_type_converter.class2index[self.type]
 
-#%%
-
+#%% ClusterPair
 @dataclass
 class ClusterPair:
     head: Cluster
@@ -308,8 +307,7 @@ class ClusterPair:
     def enumerate_span_pairs(self):
         return [SpanPair(el1, el2) for el1, el2 in product(self.head.spans, self.tail.spans)]
 
-#%%
-
+#%% Example
 @dataclass
 class Example:
         
@@ -317,7 +315,7 @@ class Example:
     sentences: list[Sentence]
 
     ### NER
-    positive_spans: list[Span]
+    # mentions: list[Span]
     
     ### Cluster
     clusters: set[Cluster]
@@ -328,8 +326,13 @@ class Example:
     ### other
     parent_dataset: Dataset
 
+    def _get_mentions(self):
+        self.mentions = set()
+        for el in self.clusters:
+            self.mentions.update(el.spans)
+
     def _get_negative_spans(self):
-        negative_span_list = [el.negative_spans() for el in self.positive_spans] 
+        negative_span_list = [el.negative_spans() for el in self.mentions] 
         self.negative_spans = set.union(*negative_span_list)
         
     def _get_candidate_spans(self):
@@ -357,6 +360,8 @@ class Example:
 
     def __post_init__(self):
         self._get_tokens()
+        # self._get_subword_tokens()
+        self._get_mentions()
         self._get_negative_spans()
         self._get_candidate_spans()
         self._get_positive_span_pairs()
@@ -364,7 +369,7 @@ class Example:
         self._get_negative_cluster_pairs()
         self._get_subword_tokens()
 
-#%%
+#%% Dataset
 @dataclass
 class Dataset:
 
@@ -377,20 +382,14 @@ class Dataset:
         types.append('NA')
         return ClassConverter(types)
 
-    
-
-
     def __post_init__(self):
+        # (a) entity types don't exist
+        # (b) entity types
         if self.entity_types:
             self.entity_type_converter = self._get_type_converter(self.entity_types)
         if self.relation_types:
             self.relation_type_converter = self._get_type_converter(self.relation_types)
-        
-#%% 
 
-
-
-#####
 
 
 
@@ -401,5 +400,8 @@ data_output_dir = 'data/modeling/DocRED'
 
 make_dir(data_output_dir)
 
+
+entity_types = torch.load(os.path.join(data_input_dir, 'entity_types.save'))
+relation_types = torch.load(os.path.join(data_input_dir, 'relation_types.save'))
 train_data = torch.load(os.path.join(data_input_dir, 'train_data.save'))
 

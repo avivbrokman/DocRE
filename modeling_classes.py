@@ -1,6 +1,6 @@
 #%% libraries
 import torch
-from torch.nn impor Module
+from torch.nn import Module
 import os
 from dataclasses import dataclass, field
 from typing import Optional
@@ -104,7 +104,12 @@ class NER(Module):
         self.span_embedder = span_embedder
         self.length_embedder = length_embedder
         self.prediction_layer = prediction_layer
-    
+
+    def predict(self, spans, logits):
+        class_indices = torch.argmax(logits, dim = 1)
+        for i, el in enumerate(spans):
+            el.type = el.parent_example.parent_dataset.entity_converter.index2class[class_indices[i]]
+        
     def filter_nonentities(self, spans):
         return [el for el in spans if el.type != 'NA']
 
@@ -119,7 +124,7 @@ class NER(Module):
         
         logits = self.prediction_layer(span_embeddings)
         
-        return logits, pooled_token_embeddings
+        return logits#, pooled_token_embeddings
 
 
 #%% clustering
@@ -206,7 +211,7 @@ class Gate(Module):
 
     def forward(span_)
 
-#%%
+#%% coreference
 class Coreference(Module):
     def __init__(self, levenshtein_embedder, levenshtein_gate, prediction_layer, span_embedder, length_embedder, length_difference_embedder):
 
@@ -275,13 +280,15 @@ class Coreference(Module):
 
 #%% RC
 class RelationClassifier(Module):
-    def __init__(self, final_embedder, span_embedder, span_pooler, cluster_embedder, type_embedder):
+    def __init__(self, local_pooler, prediction_layer,span_embedder, intervening_span_embedder, span_pooler, cluster_embedder, type_embedder):
     
         # necessary
-        self.final_embedder = final_embedder
-
+        self.local_pooler = local_pooler
+        self.prediction_layer = prediction_layer
+        
         # optional
         self.span_embedder = span_embedder
+        self.intervening_span_embedder = intervening_span_embedder
         self.span_pooler = span_pooler # use this or cluster_embedder
         self.cluster_embedder = cluster_embedder # use this or span_pooler
         self.type_embedder = type_embedder
@@ -294,13 +301,17 @@ class RelationClassifier(Module):
         for el in cluster_pairs:
             spans.update(el.head.spans)
             spans.update(el.tail.spans)
+        
+        return list(spans)
 
+    def get_intervening_spans(self):
+        spans = set()
         if self.intervening_span_embedder:
             for el in cluster_pairs:
                 for el_pair in el.enumerate_span_pairs():
                     spans.add(el_pair.intervening_span())
-        
-        return list(spans)
+
+        return spans
 
     def get_clusters_from_cluster_pairs(self):
         clusters = set()
@@ -321,51 +332,46 @@ class RelationClassifier(Module):
     def embed_clusters(self, clusters, span2embedding):
         return [self.embed_cluster(el, span2embedding) for el in clusters]
 
-    def token_distance_embeddings(self, cluster_pairs):
-        
-        def workhorse(self, cluster_pair):
+    def local_cluster_pair_embeddings(self, cluster_pairs, span2embedding):
+
+        def workhorse(cluster_pair):
+            
             span_pairs = cluster_pair.enumerate_span_pairs()
 
-            distances = [el.token_distance() for el in span_pairs]
+            def token_distance():
 
-            embeddings = self.token_distance_embedder(distances) 
+                distances = [el.token_distance() for el in span_pairs]
 
-            pooled_embedding = self.token_distance_pooler(embeddings)
+                embeddings = self.token_distance_embedder(distances)
+
+                return embeddings
+
+            def sentence_distance():
+
+                distances = [el.sentence_distance() for el in span_pairs]
+
+                embeddings = self.sentence_distance_embedder(distances) 
+
+                return embeddings
+
+            def intervening_span():
+                
+                intervening_spans = [el.intervening_span() for el in span_pairs]   
+                embeddings = [span2embedding[el] for el in intervening_spans]
+                embeddings = torch.stack(embeddings)
+
+                return embeddings
+
+            embeddings = torch.cat((token_distance(), sentence_distance(), intervening_span()))
+
+            pooled_embedding = self.local_pooler(embeddings)
 
             return pooled_embedding
 
         embeddings = [workhorse(el) for el in cluster_pairs]
-        
-        return torch.stack(embeddings)
+        embeddings = torch.cat(embeddings)
 
-
-    def sentence_distance_embeddings(self, cluster_pairs):
-        
-        def workhorse(self, cluster_pair):
-            span_pairs = cluster_pair.enumerate_span_pairs()
-
-            sentence_distances = [el.sentence_distance() for el in span_pairs]
-
-            return self.sentence_distance_embedder(sentence_distances) 
-
-        embeddings = [workhorse(el) for el in cluster_pairs]
-        
-        return torch.stack(embeddings)
-
-    def intervening_span_embeddings(self, cluster_pairs, span2embedding):
-        
-        def workhorse(self, cluster_pair):
-            span_pairs = cluster_pair.enumerate_span_pairs()
-            
-            intervening_spans = [el.intervening_span() for el in span_pairs]   
-            intervening_span_embeddings = [span2embedding[el] for el in intervening_spans]
-            intervening_span_embeddings = torch.stack(intervening_span_embeddings)
-
-            return intervening_span_embeddings
-            
-        embeddings = [workhorse(el) for el in cluster_pairs]
-        
-        return torch.stack(embeddings)
+        return embeddings
 
     def global_cluster_pair_embeddings(self, cluster_pairs, cluster2embedding):
 
@@ -377,16 +383,17 @@ class RelationClassifier(Module):
         embeddings = [workhorse(el for el in cluster_pairs)]
         return torch.stack(embeddings)
 
-
-
     def forward(self, cluster_pairs, token_embeddings, entity_type_converter):
 
         spans = self.get_spans_from_cluster_pairs()
+        intervening_spans = self.get_intervening_spans()
 
         # individual span embeddings
         span_embeddings = self.span_embedder(spans, token_embeddings)
+        intervening_span_embeddings = self.intervening_span_embedder(intervening_spans, intervening_span_embeddings)
 
         span2embedding = dict(zip(spans, span_embeddings))
+        intervening_span2embedding = dict(zip(intervening, intervening_span_embeddings))
 
         # individual cluster embeddings
         cluster_embeddings = self.embed_clusters(el, span2embedding)
@@ -394,7 +401,7 @@ class RelationClassifier(Module):
         types = [entity_type_converter.class2index(el.type) for el in clusters]
         type_embeddings = self.type_embedder(types)
 
-        torch.cat((cluster_embeddings, type_embeddings))
+        cluster_embeddings = torch.cat((cluster_embeddings, type_embeddings))
 
         cluster2embedding = dict(zip(clusters, cluster_embeddings))
 
@@ -402,17 +409,15 @@ class RelationClassifier(Module):
         global_cluster_pair_embeddings = self.global_cluster_pair_embeddings(cluster_pairs, cluster2embedding)
 
         # local span-pair embeddings       
-        
-        token_distance_embeddings = self.token_distance_embeddings(cluster_pairs)
-        sentence_distance_embeddings = self.sentence_distance_embeddings(cluster_pairs)
-        intervening_span_embeddings = self.intervening_span_embeddings(cluster_pairs, span2embedding)
-
-        mention_pair_embeddings = torch.cat((token_distance_embeddings, sentence_distance_embeddings, intervening_span_embeddings))
-
-        
+        local_cluster_pair_embeddings = self.local_cluster_pair_embeddings(cluster_pairs, intervening_span2embedding)
 
         # combine global + local
-        torch.cat()
+        cluster_pair_embeddings = torch.cat((global_cluster_pair_embeddings, local_cluster_pair_embeddings))
+
+        logits = self.prediction_layer(cluster_pair_embeddings)
+
+        return logits
+
 
         
             
