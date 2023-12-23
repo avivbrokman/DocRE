@@ -8,7 +8,7 @@ from collections import Counter
 import json
 
 from utils import make_dir, unlist, mode, save_json
-# from universal_classes import Mention, Entity, Relation, Example, Dataset
+from data_classes import Token, Span, Sentence, SpanPair, ClassConverter, Cluster, ClusterPair, Example, Dataset
 
 #%% DocREDWord
 @dataclass

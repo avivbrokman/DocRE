@@ -4,6 +4,7 @@ from torch.nn import Module
 import os
 from dataclasses import dataclass, field
 from typing import Optional
+from copy import deepcopy
 
 from utils import apply
 
@@ -98,6 +99,7 @@ class TokenEmbedder(Module):
         
 #         return logits, pooled_token_embeddings
 
+#%% NER again
 class NER(Module):
     
     def __init__(self, span_embedder, length_embedder, prediction_layer):
@@ -105,13 +107,8 @@ class NER(Module):
         self.length_embedder = length_embedder
         self.prediction_layer = prediction_layer
 
-    def predict(self, spans, logits):
-        class_indices = torch.argmax(logits, dim = 1)
-        for i, el in enumerate(spans):
-            el.type = el.parent_example.parent_dataset.entity_converter.index2class[class_indices[i]]
-        
     def filter_nonentities(self, spans):
-        return [el for el in spans if el.type != 'NA']
+        return [el for el in spans if el.predicted_type != 'NA']
 
     def forward(self, spans, token_embeddings):
         
@@ -125,6 +122,30 @@ class NER(Module):
         logits = self.prediction_layer(span_embeddings)
         
         return logits#, pooled_token_embeddings
+
+    def get_gold_labels(self, spans):
+        labels = [el.type for el in spans]
+        labels = torch.tensor(labels)
+        
+        return labels
+
+    def predict(self, spans, logits):
+        index2class = spans[0].parent_example.parent_dataset.entity_converter.index2class
+        
+        spans = deepcopy(spans)
+        for el in spans:
+            el.parent_example = None
+        
+        type_indices = torch.argmax(logits, dim = 1)
+
+        for i, el in enumerate(spans):
+            el.predicted_type = index2class[type_indices[i]]
+
+        return spans
+
+    
+
+
 
 
 #%% clustering
@@ -213,12 +234,13 @@ class Gate(Module):
 
 #%% coreference
 class Coreference(Module):
-    def __init__(self, levenshtein_embedder, levenshtein_gate, prediction_layer, span_embedder, length_embedder, length_difference_embedder):
+    def __init__(self, levenshtein_embedder, levenshtein_gate, prediction_layer, clusterer, span_embedder, length_embedder, length_difference_embedder,):
 
         # need
         self.levenshtein_embedder = levenshtein_embedder
         self.levenshtein_gate = levenshtein_gate
         self.prediction_layer = prediction_layer
+        self.clusterer = clusterer
 
         # optional
         self.span_embedder = span_embedder
@@ -275,7 +297,31 @@ class Coreference(Module):
 
         logits = self.prediction_layer(span_pair_embeddings)
 
-        return logits        
+        return logits 
+
+    def get_gold_labels(self, span_pairs):
+        labels = [el.coref for el in spans_pairs]
+        labels = torch.tensor(labels)
+        
+        return labels
+
+    def keep_coreferent_pairs(self, span_pairs):
+        return [el for el in span_pairs if el.predicted_coref == 1]
+
+    def predict(self, span_pairs, logits):
+        
+        span_pairs = deepcopy(span_pairs)
+        for el in spans:
+            el.parent_example = None
+
+        coref_indices = torch.argmax(logits, dim = 1)
+
+        for i, el in enumerate(span_pairs):
+            el.predicted_coref = type_indices[i]
+
+        return span_pairs
+        
+
 
 
 #%% RC
@@ -417,6 +463,28 @@ class RelationClassifier(Module):
         logits = self.prediction_layer(cluster_pair_embeddings)
 
         return logits
+
+    def get_gold_labels(self, cluster_pairs):
+        return [el.type for el in cluster_pairs]
+
+    def predict(self, cluster_pairs, logits, entity_type_converter):
+        
+        cluster_pairs = deepcopy(cluster_pairs)
+        for el in cluster_pairs:
+            el.parent_example = None
+
+        type_indices = torch.argmax(logits, dim = 1)
+
+        for i, el in enumerate(cluster_pairs):
+            el.predicted_type = entity_type_converter.index2class[type_indices[i]]
+
+        return cluster_pairs
+
+    def filter_nonrelations(self, cluster_pairs):
+        return [el for el in cluster_pairs if el.type != 'NA']
+
+
+    
 
 
         

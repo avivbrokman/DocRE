@@ -109,6 +109,9 @@ class Span:
     def __hash__(self):
         return hash(indices)
 
+    def __eq__(self, other):
+        return hash(self) == hash(other)
+
     def levenshtein_distance(self, other):
         return distance(self.string, other.string)
 
@@ -184,6 +187,8 @@ class Span:
         self._get_parent_sentence()
         self._get_string()
         self._get_subword_indices()
+
+    
 
 #%% Sentence
 @dataclass
@@ -313,9 +318,6 @@ class Example:
         
     # general
     sentences: list[Sentence]
-
-    ### NER
-    # mentions: list[Span]
     
     ### Cluster
     clusters: set[Cluster]
@@ -334,9 +336,11 @@ class Example:
     def _get_negative_spans(self):
         negative_span_list = [el.negative_spans() for el in self.mentions] 
         self.negative_spans = set.union(*negative_span_list)
+        self.negative_spans -= self.mentions
         
     def _get_candidate_spans(self):
         self.candidate_spans = set()
+        self.candidate_spans.update(self.mentions)
         for el in self.sentences:
             self.candidate_spans.add(el.candidate_spans())
 
@@ -348,6 +352,9 @@ class Example:
 
     def _get_negative_cluster_pairs(self):
         self.negative_cluster_pairs = unlist([el.negative_cluster_pairs() for el in self.positive_cluster_pairs])
+
+    def _get_candidate_cluster_pairs(self):
+        self.candidate_cluster_pairs = [ClusterPair(el1, el2) for el1, el2 in combinations(self.clusters, 2)]
 
     def __len__(self):
         return len(self.tokens)
@@ -367,6 +374,7 @@ class Example:
         self._get_positive_span_pairs()
         self._get_negative_span_pairs()
         self._get_negative_cluster_pairs()
+        self._get_candidate_cluster_pairs()
         self._get_subword_tokens()
 
 #%% Dataset 
