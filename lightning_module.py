@@ -5,7 +5,7 @@ from lightning import LightningModule
 
 #%% body
 class LightningRE(LightningModule):
-    def __init__(self, lm, ner, clusterer, entity_type_converter, relation_type_converter, loss_coefficients, ner_scorer_classes, coref_scorer_classes, cluster_scorer_classes, rc_scorer_classes):
+    def __init__(self, lm, ner, clusterer, entity_type_converter, relation_type_converter, loss_coefficients, ner_scorer_classes, coref_scorer_classes, cluster_scorer_classes, rc_scorer_classes, ner_performance_calculator_class, cluster_performance_calculator_class, rc_performance_calculator_class):
         super().__init__()
         self.lm = lm
         self.ner = ner
@@ -22,7 +22,18 @@ class LightningRE(LightningModule):
         self.cluster_scorer_classes = cluster_scorer_classes
         self.rc_scorer_classes = rc_scorer_classes
 
-        self.validation_details = []
+        self.ner_performance_calculators = self._create_performance_calculators(ner_scorer_classes, ner_performance_calculator_class)
+        self.coref_performance_calculators = self._create_performance_calculators(coref_scorer_classes, coref_performance_calculator_class)
+        self.cluster_performance_calculators = self._create_performance_calculators(cluster_scorer_classes, cluster_performance_calculator_class)
+        self.rc_performance_calculators = self._create_performance_calculators(rc_scorer_classes, rc_performance_calculator_class)
+
+        self.validation_details = list()
+        self.test_details = list()
+
+        self.validation_performance = list()
+
+    def _create_performance_calculators(self, scorer_classes, performance_calculator_class):
+        return {type(el).__name__: performance_calculator_class for el in scorer_classes}
 
     def lm_step(self, example):
         tokens = example.subword_tokens
@@ -116,9 +127,10 @@ class LightningRE(LightningModule):
             loss += clusterer_loss
 
         return loss
-  s
+  
     def inference_step(self, example, example_index):
         
+        # obtain predictions
         token_embeddings = self.lm_step(example)
 
         if self.ner:
@@ -129,16 +141,6 @@ class LightningRE(LightningModule):
                 # NEED TO ALTER CODE SO THAT cluster_inference_step() WILL ACCEPT predicteD_mentions
             else:
                 predicted_coreferent_pairs, predicted_clusters = self.cluster_inference_step(example, token_embeddings)
-            
-            coref_scorers = dict()
-                for el in self.coref_scorer_classes:
-                    class_name = type(el).__name__
-                    coref_scorers[class_name] = el(predicted_coreferent_pairs, example.pos_span_pairs)
-
-            cluster_scorers = dict()
-            for el in self.cluster_scorer_classes:
-                class_name = type(el).__name__
-                cluster_scorers[class_name] = el(predicted_mentions, example.positive_spans)
 
         if self.rc:
             if self.cluster:
@@ -147,38 +149,80 @@ class LightningRE(LightningModule):
                 predicted_relations = self.rc_inference_step(example, token_embeddings)
         
                         cluster_scorers = dict()
-            
-            rc_scorers = set()
-            for el in self.rc_scorer_classes:
-                class_name = type(el).__name__
-                rc_scorers[class_name] = el(predicted_relations, example.positive_cluster_pairs)
-
-
+        
+        # example performance
         if self.ner:
             ner_scorers = dict()
             for el in self.ner_scorer_classes:
                 class_name = type(el).__name__
                 ner_scorers[class_name] = el(predicted_mentions, example.positive_spans)
+                self.ner_performance_calculators[class_name].update(**el.performants_counts())
+        if self.cluster:
+            coref_scorers = dict()
+            for el in self.coref_scorer_classes:
+                class_name = type(el).__name__
+                coref_scorers[class_name] = el(predicted_coreferent_pairs, example.pos_span_pairs)
+                self.coref_performance_calculators[class_name].update(**el.performants_counts())
+            cluster_scorers = dict()
+            for el in self.cluster_scorer_classes:
+                class_name = type(el).__name__
+                cluster_scorers[class_name] = el(predicted_clusters, example.clusters)
+                self.cluster_performance_calculators[class_name].update(**el.performants_counts())
+        if self.rc:
+            rc_scorers = set()
+            for el in self.rc_scorer_classes:
+                class_name = type(el).__name__
+                rc_scorers[class_name] = el(predicted_relations, example.positive_cluster_pairs)
+                self.rc_performance_calculators[class_name].update(**el.performants_counts())
 
+        # organizing results and details for error analysis
         details = {'example': example, 
-                    'example_index': example_index,
-                    'predicted_mentions': predicted_mentions,
-                    'predicted_coref_pairs': predicted_coreferent_pairs,
-                    'predicted_clusters': predicted_clusters,
-                    'predicted_relations': predicted_relations
-                    }
+                   'example_index': example_index
+                   }
         
-
-        validation_details.append({'example': exa})
+        if self.ner:
+            details['predicted_mentions'] = predicted_mentions
+            details['ner_scorers'] = ner_scorers
+        if self.cluster:
+            details['predicted_coref_pairs'] = predicted_coreferent_pairs
+            details['predicted_cluster_pairs'] = predicted_cluster_pairs
+            details['coref_scorers'] = coref_scorers
+            details['cluster_scorers'] = cluster_scorers
+        if self.rc:
+            details['predicted_relations'] = predicted_relations
+            details['rc_scorers'] = rc_scorers
         
-        return 
+        self.validation_details[-1].append(details)
 
+    def _reset_calculators(self, calculator_dict):
+        for value in calculator_dict.values():
+            value.reset()
 
+    def _compute_calculators(self, calculator_dict):
+        return {key: value.compute() for key, value in self.calculator_dict.items()}
 
+    def on_validation_epoch_start(self):
+        self.details.append(list())
+            
+    def on_validation_epoch_end(self):
+        performance = dict()
+        if self.ner:
+            performance['ner'] = self._compute_calculators(self.ner_performance_calculators.items())
+        if self.cluster:
+            performance['coref'] =  self._compute_calculators(self.coref_performance_calculators.items())
+            performance['cluster'] =  self._compute_calculators(key: value.compute() for key, value in self.cluster_performance_calculators.items())
+        if self.rc:
+            performance['rc'] =  self._compute_calculators(self.rc_performance_calculators.items())
 
+        self.validation_performance.append(performance)
 
-    def on_validation_epoch_end(self)
-
+        if self.ner:
+            self._reset_calculators(self.ner_performance_calculators)
+        if self.cluster:
+            self._reset_calculators(self.coref_performance_calculators)
+            self._reset_calculators(self.cluster_performance_calculators)
+        if self.rc:
+            self._reset_calculators(self.rc_performance_calculators)
     
     def test_step(self):
 
