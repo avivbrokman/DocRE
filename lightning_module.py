@@ -1,11 +1,12 @@
 #%% libraries
 import torch
 from torch.nn.functional import nll_loss
+from torch.optim import AdamW
 from lightning import LightningModule
 
 #%% body
 class LightningRE(LightningModule):
-    def __init__(self, lm, ner, clusterer, entity_type_converter, relation_type_converter, loss_coefficients, ner_scorer_classes, coref_scorer_classes, cluster_scorer_classes, rc_scorer_classes, ner_performance_calculator_class, cluster_performance_calculator_class, rc_performance_calculator_class):
+    def __init__(self, lm, ner, clusterer, entity_type_converter, relation_type_converter, loss_coefficients, lm_learning_rate, learning_rate, candidate_span_pairs_constructor, ner_scorer_classes, coref_scorer_classes, cluster_scorer_classes, rc_scorer_classes, ner_performance_calculator_class, cluster_performance_calculator_class, rc_performance_calculator_class):
         super().__init__()
         self.lm = lm
         self.ner = ner
@@ -16,6 +17,10 @@ class LightningRE(LightningModule):
         self.relation_type_converter = relation_type_converter
 
         self.loss_coefficients = loss_coefficients
+        self.lm_learning_rate = lm_learning_rate
+        self.learning_rate = learning_rate
+
+        self.candidate_span_pairs_constructor = candidate_span_pairs_constructor
 
         self.ner_scorer_classes = ner_scorer_classes
         self.coref_scorer_classes = coref_scorer_classes
@@ -31,6 +36,7 @@ class LightningRE(LightningModule):
         self.test_details = list()
 
         self.validation_performance = list()
+        self.test_performance = list()
 
     def _create_performance_calculators(self, scorer_classes, performance_calculator_class):
         return {type(el).__name__: performance_calculator_class for el in scorer_classes}
@@ -62,8 +68,9 @@ class LightningRE(LightningModule):
         return predicted_mentions
 
     def cluster_training_step(self, example, token_embeddings):
-        candidate_span_pairs = example.positive_span_pairs + example.negative_span_pairs
         
+        candidate_span_pairs = example.positive_span_pairs + example.negative_span_pairs
+
         logits = self.clusterer(candidate_span_pairs, token_embeddings)
         gold_labels = self.clusterer.get_gold_labels(candidate_span_pairs)
 
@@ -71,8 +78,7 @@ class LightningRE(LightningModule):
 
         return loss
 
-    def cluster_inference_step(self, example, token_embeddings):
-        candidate_span_pairs = example.positive_span_pairs + example.negative_span_pairs
+    def cluster_inference_step(self, candidate_spans_pairs, token_embeddings):
         
         logits = self.clusterer(candidate_span_pairs, token_embeddings)
 
@@ -94,8 +100,7 @@ class LightningRE(LightningModule):
 
         return loss
 
-    def rc_inference_step(self, example, entity_type_converter):
-        candidate_cluster_pairs = example.candidate_cluster_pairs
+    def rc_inference_step(self, candidate_cluster_pairs, entity_type_converter):
 
         logits = self.rc(candidate_cluster_pairs, token_embeddings, entity_type_converter)
 
@@ -138,18 +143,20 @@ class LightningRE(LightningModule):
                          
         if self.clusterer:
             if self.ner:
-                # NEED TO ALTER CODE SO THAT cluster_inference_step() WILL ACCEPT predicteD_mentions
+                candidate_span_pairs = self.candidate_span_pairs_constructor(predicted_mentions)
             else:
-                predicted_coreferent_pairs, predicted_clusters = self.cluster_inference_step(example, token_embeddings)
+                candidate_span_pairs = example.positive_span_pairs + example.negative_span_pairs
+
+            predicted_coreferent_pairs, predicted_clusters = self.cluster_inference_step(candidate_span_pairs, token_embeddings)
 
         if self.rc:
             if self.cluster:
-                # NEED TO ALTER CODE SO THAT rc_inference_step() WILL ACCEPT predicted_clusters
+                candidate_cluster_pairs = self.candidate_cluster_pairs_constructor(predicted_clusters)
             else:
-                predicted_relations = self.rc_inference_step(example, token_embeddings)
-        
-                        cluster_scorers = dict()
-        
+                candidate_cluster_pairs = example.positive_cluster_pairs + example.negative_cluster_pairs
+                
+            predicted_relations = self.rc_inference_step(example, token_embeddings)
+                
         # example performance
         if self.ner:
             ner_scorers = dict()
@@ -192,7 +199,16 @@ class LightningRE(LightningModule):
             details['predicted_relations'] = predicted_relations
             details['rc_scorers'] = rc_scorers
         
+        return details
+
+    def validation_step(self, example, example_index):
+        details = self.inference_step(example, example_index)
         self.validation_details[-1].append(details)
+
+
+    def test_step(self, example, example_index):
+        details = self.inference_step(example, example_index)
+        self.test_details[-1].append(details)
 
     def _reset_calculators(self, calculator_dict):
         for value in calculator_dict.values():
@@ -202,9 +218,12 @@ class LightningRE(LightningModule):
         return {key: value.compute() for key, value in self.calculator_dict.items()}
 
     def on_validation_epoch_start(self):
+        # create a new list of example performance details for the new epoch
         self.details.append(list())
             
     def on_validation_epoch_end(self):
+        
+        # obtain and save performance
         performance = dict()
         if self.ner:
             performance['ner'] = self._compute_calculators(self.ner_performance_calculators.items())
@@ -216,6 +235,7 @@ class LightningRE(LightningModule):
 
         self.validation_performance.append(performance)
 
+        # resetting calculators
         if self.ner:
             self._reset_calculators(self.ner_performance_calculators)
         if self.cluster:
@@ -223,9 +243,13 @@ class LightningRE(LightningModule):
             self._reset_calculators(self.cluster_performance_calculators)
         if self.rc:
             self._reset_calculators(self.rc_performance_calculators)
-    
-    def test_step(self):
 
     def configure_optimizers(self):
+        lm_optimizer = {'params': self.lm.parameters(), 'lr': self.lm_learning_rate}
+        ner_optimizer = {'params': self.ner.parameters(), 'lr': self.learning_rate}
+        cluster_optimizer = {'params': self.cluster.parameters(), 'lr': self.learning_rate}
+        rc_optimizer = {'params': self.rc.parameters(), 'lr': self.learning_rate}
+        
+        return AdamW([lm_optimizer, ner_optimizer, cluster_optimizer, rc_optimizer])        
 
     
