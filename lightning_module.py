@@ -6,7 +6,7 @@ from lightning import LightningModule
 
 #%% body
 class LightningRE(LightningModule):
-    def __init__(self, lm, ner, clusterer, entity_type_converter, relation_type_converter, loss_coefficients, lm_learning_rate, learning_rate, candidate_span_pairs_constructor, ner_scorer_classes, coref_scorer_classes, cluster_scorer_classes, rc_scorer_classes, ner_performance_calculator_class, cluster_performance_calculator_class, rc_performance_calculator_class):
+    def __init__(self, lm, ner, clusterer, entity_type_converter, relation_type_converter, loss_coefficients, lm_learning_rate, learning_rate, candidate_span_pair_constructor, ner_scorer_classes, coref_scorer_classes, cluster_scorer_classes, rc_scorer_classes, ner_performance_calculator_class, cluster_performance_calculator_class, rc_performance_calculator_class):
         super().__init__()
         self.lm = lm
         self.ner = ner
@@ -20,7 +20,8 @@ class LightningRE(LightningModule):
         self.lm_learning_rate = lm_learning_rate
         self.learning_rate = learning_rate
 
-        self.candidate_span_pairs_constructor = candidate_span_pairs_constructor
+        self.candidate_span_pair_constructor = candidate_span_pair_constructor
+        self.candidate_cluster_pair_constructor = candidate_cluster_pair_constructor
 
         self.ner_scorer_classes = ner_scorer_classes
         self.coref_scorer_classes = coref_scorer_classes
@@ -143,7 +144,7 @@ class LightningRE(LightningModule):
                          
         if self.clusterer:
             if self.ner:
-                candidate_span_pairs = self.candidate_span_pairs_constructor(predicted_mentions)
+                candidate_span_pairs = self.candidate_span_pair_constructor(predicted_mentions)
             else:
                 candidate_span_pairs = example.positive_span_pairs + example.negative_span_pairs
 
@@ -151,7 +152,7 @@ class LightningRE(LightningModule):
 
         if self.rc:
             if self.cluster:
-                candidate_cluster_pairs = self.candidate_cluster_pairs_constructor(predicted_clusters)
+                candidate_cluster_pairs = self.candidate_cluster_pair_constructor(predicted_clusters)
             else:
                 candidate_cluster_pairs = example.positive_cluster_pairs + example.negative_cluster_pairs
                 
