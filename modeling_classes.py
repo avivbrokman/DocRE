@@ -129,6 +129,20 @@ class NER(Module):
         
         return labels
 
+    # def predict(self, spans, logits):
+    #     index2class = spans[0].parent_example.parent_dataset.entity_converter.index2class
+        
+    #     spans = deepcopy(spans)
+    #     for el in spans:
+    #         el.parent_example = None
+        
+    #     type_indices = torch.argmax(logits, dim = 1)
+
+    #     for i, el in enumerate(spans):
+    #         el.predicted_type = index2class[type_indices[i]]
+
+    #     return spans
+
     def predict(self, spans, logits):
         index2class = spans[0].parent_example.parent_dataset.entity_converter.index2class
         
@@ -139,14 +153,9 @@ class NER(Module):
         type_indices = torch.argmax(logits, dim = 1)
 
         for i, el in enumerate(spans):
-            el.predicted_type = index2class[type_indices[i]]
+            el.type = index2class[type_indices[i]]
 
         return spans
-
-    
-
-
-
 
 #%% clustering
 class Coreference_with_span_embeddings(Module):

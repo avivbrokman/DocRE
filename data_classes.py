@@ -1,12 +1,6 @@
-# doing the traditional stuff
+#%% To-do list
+# Add in conditional __hash__ and __eq__ methods as well as the necessary attributes
 
-# get entity-type-pair/relation_type valid combinations
-    # help in choosing HARD examples for contrastive learning (this is only for later)
-    # post-processing so we remove obvious FP's    
-# get negative examples
-    # choose what proportion are negative in each combination
-# get this all into a tensor so we can predict on it.  
-# get all of the extra info for contextual embeddings, etc.
 
 #%% libraries
 import os
@@ -86,7 +80,38 @@ class Token:
 @dataclass(frozen = True)
 class Span:
     tokens: list[Token]
-    type: Optional[str]
+    type: Optional[str] = None
+
+    typed_eval: bool = True
+    location_or_string_eval: str = 'location'
+
+    def __hash__(self):
+        hash_list = list()
+        if location_or_string_eval == 'location':
+            hash_list.append(self.indices)
+        elif location_or_string_eval == 'string':
+            hash_list.append(self.string)
+        
+        if self.typed_eval:
+            hash_list.append(self.type)
+        
+        hash_tuple = tuple(hash_list)
+
+        return hash(hash_tuple)
+
+    def __eq__(self, other):
+        if self.typed_eval:
+            if self.type != other.type:
+                return False
+        if self.location_or_string_eval == 'location':
+            return self.indices == other.indices:
+        elif self.location_or_string_eval == 'string':
+            return self.string == other.string:
+        
+        # return hash(self) == hash(other)
+
+    def __len__(self):
+        return len(range(*self.indices))
 
     def _get_in_sentence_indices(self):
         self.in_sentence_indices = (tokens[0].in_sentence_index, tokens[-1].in_sentence_index + 1)
@@ -102,15 +127,6 @@ class Span:
 
     def _get_subword_indices(self):
         self.subword_indices = (self.tokens[0].subword_indices[0], self.tokens[-1].subword_indices[1])
-
-    def __len__(self):
-        return len(range(*self.indices))
-
-    def __hash__(self):
-        return hash(indices)
-
-    def __eq__(self, other):
-        return hash(self) == hash(other)
 
     def levenshtein_distance(self, other):
         return distance(self.string, other.string)
@@ -248,15 +264,31 @@ class ClassConverter:
 @dataclass
 class Cluster:
     spans: set[Span]
-    type: Optional[str]
+    type: Optional[str] = None
     parent_example: Example
-    class_converter: Optional[ClassConverter]
+    class_converter: Optional[ClassConverter] = None
 
+    typed_eval: bool = True
+    location_or_string_eval: str = 'location'
+
+    def __hash__(self):
+        hash_list = sorted(self.spans, key = lambda span: hash(span)
+        
+        if self.typed_eval:            
+            hash_list.append(self.type)
+        
+        hash_tuple = tuple(hash_list)
+        
+        return hash(hash_tuple)
+
+    def __eq__(self, other):
+        if self.typed_eval:
+            if self.type != other.type:
+                return False
+        return self.spans = other.spans
+    
     def __len__(self):
         return len(spans)
-    
-    def __hash__(self):
-        return hash(spans)
 
     def pos_span_pairs(self):
        return [SpanPair(el1, el2) for el1, el2 in combinations(self.spans, 2)]
@@ -278,10 +310,28 @@ class ClusterPair:
     tail: Cluster
     parent_example: Example
 
-    relation_type: Optional[str]
+    type: Optional[str] = None
+
+    typed_eval: bool = True
+    location_or_string_eval: str = 'location'
 
     def __hash__(self):
-        return hash((head, tail, relation_type))
+        hash_list = [self.head, self.tail]
+        if typed_eval:
+            hash_list.append(self.type)
+        hash_tuple = tuple(hash_list)
+        
+        return hash_tuple
+
+    def __eq__(self, other):
+        if self.typed_eval:
+            if self.type != other.type:
+                return False
+        if self.head != other.head:
+            return False
+        if self.tail != other.tail:
+            return False
+        return True
 
     def relation_type_negatives(self):
         '''This will be too many negatives. Want to filter out less common relation_types somehow'''
@@ -291,9 +341,9 @@ class ClusterPair:
 
     def cluster_negatives_cluster(self, cluster, head_or_tail):
         if head_or_tail == 'head':
-            return ClusterPair(cluster, self.tail, self.relation_type)
+            return ClusterPair(cluster, self.tail, self.type)
         elif head_or_tail == 'tail':
-            return ClusterPair(self.head, cluster, self.relation_type)
+            return ClusterPair(self.head, cluster, self.type)
 
     def cluster_negatives(self):
         clusters = self.parent_example.clusters - set([self.head, self.tail])

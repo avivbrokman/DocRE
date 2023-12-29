@@ -6,32 +6,46 @@ from lightning import LightningModule
 
 #%% body
 class LightningRE(LightningModule):
-    def __init__(self, lm, ner, clusterer, entity_type_converter, relation_type_converter, loss_coefficients, lm_learning_rate, learning_rate, candidate_span_pair_constructor, ner_scorer_classes, coref_scorer_classes, cluster_scorer_classes, rc_scorer_classes, ner_performance_calculator_class, cluster_performance_calculator_class, rc_performance_calculator_class):
+    def __init__(self, lm, ner, clusterer, rc, entity_type_converter, relation_type_converter, loss_coefficients, lm_learning_rate, learning_rate, candidate_span_pair_constructor, candidate_cluster_pair_constructor, ner_scorer_classes, coref_scorer_classes, cluster_scorer_classes, rc_scorer_classes, calculator_class):
         super().__init__()
         self.lm = lm
-        self.ner = ner
-        self.clusterer = clusterer
-        self.rc = rc
+        if ner:
+            self.ner = ner
+        if clusterer:
+            self.clusterer = clusterer
+        if rc:
+            self.rc = rc
 
         self.entity_type_converter = entity_type_converter
-        self.relation_type_converter = relation_type_converter
+        
+        if rc:
+            self.relation_type_converter = relation_type_converter
 
         self.loss_coefficients = loss_coefficients
         self.lm_learning_rate = lm_learning_rate
         self.learning_rate = learning_rate
 
-        self.candidate_span_pair_constructor = candidate_span_pair_constructor
-        self.candidate_cluster_pair_constructor = candidate_cluster_pair_constructor
+        if clusterer:
+            self.candidate_span_pair_constructor = candidate_span_pair_constructor
+        if rc:
+            self.candidate_cluster_pair_constructor = candidate_cluster_pair_constructor
 
-        self.ner_scorer_classes = ner_scorer_classes
-        self.coref_scorer_classes = coref_scorer_classes
-        self.cluster_scorer_classes = cluster_scorer_classes
-        self.rc_scorer_classes = rc_scorer_classes
+        if ner:
+            self.ner_scorer_classes = ner_scorer_classes
+        
+        if clusterer:
+            self.coref_scorer_classes = coref_scorer_classes
+            self.cluster_scorer_classes = cluster_scorer_classes
+        if rc:
+            self.rc_scorer_classes = rc_scorer_classes
 
-        self.ner_performance_calculators = self._create_performance_calculators(ner_scorer_classes, ner_performance_calculator_class)
-        self.coref_performance_calculators = self._create_performance_calculators(coref_scorer_classes, coref_performance_calculator_class)
-        self.cluster_performance_calculators = self._create_performance_calculators(cluster_scorer_classes, cluster_performance_calculator_class)
-        self.rc_performance_calculators = self._create_performance_calculators(rc_scorer_classes, rc_performance_calculator_class)
+        if ner:
+            self.ner_performance_calculators = self._create_performance_calculators(ner_scorer_classes, calculator_class)
+        if clusterer:
+            self.coref_performance_calculators = self._create_performance_calculators(coref_scorer_classes, calculator_class)
+            self.cluster_performance_calculators = self._create_performance_calculators(cluster_scorer_classes, calculator_class)
+        if rc:
+            self.rc_performance_calculators = self._create_performance_calculators(rc_scorer_classes, calculator_class)
 
         self.validation_details = list()
         self.test_details = list()
