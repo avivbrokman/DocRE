@@ -1,0 +1,42 @@
+seed_everything: 0
+trainer:
+  logger: true
+model:
+  lm_checkpoint: bert-base-uncased
+  ner: NER
+  clusterer: Coreference
+  rc: RC
+  loss_coefficients: [1,1,1]
+  lm_learning_rate: 5e-5
+  learning_rate: 1e-3
+  candidate_span_pair_constructor: # I think this should be removed
+  candidate_cluster_pair_constructor: # Get from clusterer
+  ner_scorer_classes:
+    - TypedLocationNERScorer
+    - TypedStringNERScorer
+    - UntypedLocationNERScorer
+    - UntypedStringNERScorer
+  coref_scorer_classes: null
+  cluster_scorer_classes: 
+    - TypedLocationStrictClusterScorer
+    - TypedStringStrictClusterScorer
+    - UntypedLocationStrictClusterScorer
+    - UntypedStringStrictClusterScorer
+    - TypedLocationRelaxedClusterScorer
+    - TypedStringRelaxedClusterScorer
+    - UntypedLocationRelaxedClusterScorer
+    - UntypedStringRelaxedClusterScorer
+  rc_scorer_classes: 
+    - TypedLocationStrictRCScorer
+    - TypedStringStrictRCScorer
+    - UntypedLocationStrictRCScorer
+    - UntypedStringStrictRCScorer
+    - TypedLocationRelaxedRCScorer
+    - TypedStringRelaxedRCScorer
+    - UntypedLocationRelaxedRCScorer
+    - UntypedStringRelaxedRCScorer
+  calculator_class: Calculator
+data:
+  dataset_name: DocRED
+ckpt_path: output
+

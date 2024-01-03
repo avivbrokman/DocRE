@@ -280,7 +280,7 @@ class DocREDDataset:
     def return_Dataset(self, tokenizer, entity_types, relation_types):
         if not self.Dataset:
             examples = [el.return_Example() for el in self.examples]        
-            self.Dataset(examples, tokenizer, entity_types, relations_types)
+            self.Dataset(examples, tokenizer, entity_types, relation_types)
 
     # def return_Dataset(self, tokenizer, entity_types, relation_types):
     #     examples = [el.return_Example() for el in self.examples]        
@@ -300,7 +300,7 @@ train_data = huggingface_dataset['train_annotated']
 valid_data = huggingface_dataset['validation']
 test_data = huggingface_dataset['test']
 
-train_valid_data = concatenate_datset([train_data, valid_data])
+train_valid_data = concatenate_datasets([train_data, valid_data])
 full_data = concatenate_datasets([train_data, valid_data, test_data])
 
 # processes full dataset to get complete list of entity types and relation types

@@ -232,6 +232,16 @@ class SpanPair:
     parent_example: Example
     coref: Optional[int]
 
+    def __hash__(self):
+        hash_list = [self.span1.indices, self.span2.indices, self.coref]
+        hash_list.sort()
+        return hash(tuple(hash_list))
+    
+    def __eq__(self, other):
+
+        return {self.span1.indices, self.span2.indices, self.coref} == {other.span1.indices, other.span2.indices, other.coref}
+            
+
     def levenshtein_distance(self):
         return self.span1.lenvenshtein_distance(self.span2)
 
@@ -247,9 +257,6 @@ class SpanPair:
     def intervening_span(self):
         return self.span1.intervening_span(self.span2)
 
-
-    # def __hash__(self):
-    #     return hash((span1, span2))
 
 #%% ClassConverter
 @dataclass
@@ -272,7 +279,7 @@ class Cluster:
     location_or_string_eval: str = 'location'
 
     def __hash__(self):
-        hash_list = sorted(self.spans, key = lambda span: hash(span)
+        hash_list = sorted(self.spans, key = lambda span: hash(span))
         
         if self.typed_eval:            
             hash_list.append(self.type)
@@ -285,7 +292,7 @@ class Cluster:
         if self.typed_eval:
             if self.type != other.type:
                 return False
-        return self.spans = other.spans
+        return self.spans == other.spans
     
     def __len__(self):
         return len(spans)
@@ -447,3 +454,7 @@ class Dataset:
             self.entity_type_converter = self._get_type_converter(self.entity_types)
         if self.relation_types:
             self.relation_type_converter = self._get_type_converter(self.relation_types)
+
+    def __get_item__(self, idx):
+        
+        return self.examples[idx]

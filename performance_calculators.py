@@ -10,7 +10,6 @@ class Calculator:
         for class_, counts_dict in counts.items():
             for count_category, count in counts_dict.items():
                 self.counts[class_][count_category] += count
-
     
     def compute_precision(self, TP, FP):
         if TP + FP == 0:
@@ -31,7 +30,7 @@ class Calculator:
             return 2 * TP / (2 * TP + FP + FN)
 
     def compute(self):
-        results = default_dict(lambda: dict)
+        results = defaultdict(lambda: dict)
         for class_, counts_dict in self.counts:
             results[class_]['precision'] = self.compute_precision(counts_dict['TP'], counts_dict['FP'])
             results[class_]['recall'] = self.compute_precision(counts_dict['TP'], counts_dict['FN'])

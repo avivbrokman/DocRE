@@ -55,7 +55,7 @@ class UniClassScorer(Scorer):
         self.FP = len(self.FP_objects)
         self.FN = len(self.FN_objects)
 
-        return {'TP': TP, 'FP': FP, 'FN': FN}
+        return {'TP': self.TP, 'FP': self.FP, 'FN': self.FN}
 
 #%% Base Multiclass Scorer
 @dataclass
@@ -187,6 +187,15 @@ def UntypedStringNERScorer(MulticlassScorer):
     def __post_init__(self):
         self.adjust_spans_mode('untyped', 'string') 
         self.score() 
+
+
+    
+
+
+
+#%% coref
+
+
 
 #%% Cluster Scorer
 @dataclass
