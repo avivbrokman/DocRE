@@ -1,3 +1,4 @@
+# Basic settings
 seed_everything: 0
 trainer:
   logger: True
@@ -5,6 +6,9 @@ trainer:
   accumulate_grad_batches: 1
   fast_dev_run: False #2 #50
   max_epochs: 30 #2
+
+# reusable settings
+dataset_name: &dataset_name DocRED
 
 MLP2Pooler_config: &MLP2Pooler_config
   class: MLP2Pooler
@@ -26,7 +30,8 @@ span_embedder_config: @span_embedder_config
     token_embedder: 
       class: Identity
       config: null
-    token_pooler: max_pool
+    token_pooler: 
+      function: max_pool
     span_embedder: 
       <<: *ActivatedMLP2_config
 
@@ -133,13 +138,16 @@ RC_config: &RC_config
 
 
 
-
+# model config
 model:
+  dataset_name: *dataset_name
   lm_checkpoint: bert-base-uncased
   ner:
-    <<: *NER_settings
+    <<: *NER_config
   clusterer: Coreference
+    <<: *clusterer_config
   rc: RC
+    <<: *RC_config
   loss_coefficients: [1,1,1]
   lm_learning_rate: 5e-5
   learning_rate: 1e-3
@@ -168,7 +176,9 @@ model:
     - UntypedLocationRelaxedRCScorer
     - UntypedStringRelaxedRCScorer
   calculator_class: Calculator
+
+# data config
 data:
-  dataset_name: DocRED
+  dataset_name: *dataset_name
 ckpt_path: output
 

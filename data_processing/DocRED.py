@@ -1,11 +1,13 @@
 #%% libraries
-import os
+from os import path
 from dataclasses import dataclass, field
 from datasets import load_dataset, concatenate_datasets
 import torch
 from typing import List, Optional
 from collections import Counter
 import json
+
+from transformers import AutoTokenizer
 
 from utils import make_dir, unlist, mode, save_json
 from data_classes import Token, Span, Sentence, SpanPair, ClassConverter, Cluster, ClusterPair, Example, Dataset
@@ -288,8 +290,12 @@ class DocREDDataset:
     #     return Dataset(examples, tokenizer, entity_types, relation_types)
 
 #%% processing
+# tokenizer
+checkpoint = 'bert-base-uncased'
+            
 # make data paths and directories
-output_data_path = 'data/processed/DocRED'
+output_data_path = path.join('data', 'processed', checkpoint, 'DocRED')
+
 make_dir(output_data_path)
 
 # load dataset from hugginface
@@ -307,8 +313,7 @@ full_data = concatenate_datasets([train_data, valid_data, test_data])
 full_data = DocREDDataset(full_data)
 entity_types = full_data.get_entity_types()
 relation_types = full_data.get_relation_types()
-entity_type_converter = full_data.entity_type_converter
-relation_type_converter = full_data.relation_type_converter
+
 
 # processes all datasets
 print('train')
@@ -318,7 +323,7 @@ valid_data = DocREDDataset(valid_data)
 print('test')
 test_data = DocREDDataset(test_data)
 print('train + valid')
-train_valid_data = DocREDDataset()
+train_valid_data = DocREDDataset(train_valid_data)
 
 #%% More processing
 # relation_combinations_train = train_data.analyze_relations()
@@ -329,20 +334,27 @@ train_valid_data = DocREDDataset()
 # torch.save(relation_combinations_test, os.path.join(output_data_path, 'relation_combinations_test.save'))
 
 #%% More processing
+# tokenizer
+tokenizer = AutoTokenizer.from_pretrained(checkpoint)
+
 # converts processed datasets into modeling datasets
-train_data = train_data.return_Dataset()
-valid_data = valid_data.return_Dataset()
-test_data = test_data.return_Dataset()
-train_valid_data = train_valid_data.return_Dataset()
+train_data = train_data.return_Dataset(tokenizer, entity_types, relation_types)
+valid_data = valid_data.return_Dataset(tokenizer, entity_types, relation_types)
+test_data = test_data.return_Dataset(tokenizer, entity_types, relation_types)
+train_valid_data = train_valid_data.return_Dataset(tokenizer, entity_types, relation_types)
+
+
+entity_type_converter = train_data.entity_type_converter
+relation_type_converter = train_data.relation_type_converter
 
 # Saves everything
-torch.save(entity_types, os.path.join(output_data_path,'entity_types.save'))
-torch.save(relation_types, os.path.join(output_data_path,'relation_types.save'))
-torch.save(entity_type_converter, os.path.join(output_data_path,'entity_type_converter.save'))
-torch.save(relation_type_converter, os.path.join(output_data_path,'relation_type_converter.save'))
+torch.save(entity_types, path.join(output_data_path,'entity_types.save'))
+torch.save(relation_types, path.join(output_data_path,'relation_types.save'))
+torch.save(entity_type_converter, path.join(output_data_path,'entity_type_converter.save'))
+torch.save(relation_type_converter, path.join(output_data_path,'relation_type_converter.save'))
 
-torch.save(train_data, os.path.join(output_data_path,'train_data.save'))    
-torch.save(valid_data, os.path.join(output_data_path,'valid_data.save'))    
-torch.save(test_data, os.path.join(output_data_path,'test_data.save'))   
-torch.save(train_valid_data, os.path.join(output_data_path,'train_valid_data.save'))   
+torch.save(train_data, path.join(output_data_path,'train_data.save'))    
+torch.save(valid_data, path.join(output_data_path,'valid_data.save'))    
+torch.save(test_data, path.join(output_data_path,'test_data.save'))   
+torch.save(train_valid_data, path.join(output_data_path,'train_valid_data.save'))   
 

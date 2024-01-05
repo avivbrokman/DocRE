@@ -1,5 +1,4 @@
 #%% To-do list
-# Add in conditional __hash__ and __eq__ methods as well as the necessary attributes
 
 
 #%% libraries
@@ -12,44 +11,8 @@ from itertools import combinations, product
 
 from utils import make_dir, unlist
 
-#%% body
-# Token gets tokenized index
-# recursive function that gets tokens no matter how deeply nested? or Span, Sentence, Example have those attributes or as a function?
-##### Span stuff
-# Span needs __len__ method
-### training
-# Example needs negative spans.  Need to figure out how to generate hard negative spans.  One way is to first only include spans with nouns.  Another way is to only include subspans and superspans as negative examples.  That's probably the main way. And only within sentence.
-### eval
-# Example needs all possible intra-sentence spans enumerated
-# functions that evaluate in typed/untyped mode
-##### Clustering
-# Span needs levenshtein distance method between two spans
-### train
-# Example needs negative pairs of spans.  Could do all pairs that don't coref.  But want harder ones.  How to do that?  Hard negatives could be only same type.  Hard negatives could have closer levenshtein distances.
-### eval
-# function that creates all possible pairs of mentions
-# functions/classes that evaluate in a strict mode/relaxed mode, span/string mode, typed/untyped mode
-##### Relation classification
-# Span needs token distance and sentence distance from other Span methods
-# Span needs method to obtain all tokens between it and another span
-### train
-# Example needs hard negatives.  Perhaps for every possible example, switching out relation types, head entities, or tail entities.  But then need to check none of those are positives as well.
-### eval
-# function that creates all possible pairs of entities
-# functions/classes that evaluate in a strict mode/relaxed mode, span/string mode, typed, untyped mode
 
-### Loss
 
-##### overall
-# Token
-# Span
-# Sentence
-# Mention (subclass of Span)
-# Cluster
-# Entity? (subclass of Cluster)
-# EntityPair?/Relation?
-# Example
-# Dataset
 #%% Token
 @dataclass
 class Token:
@@ -61,17 +24,16 @@ class Token:
 
     def _get_subword_tokens(self):
         tokenizer = self.parent_sentence.parent_example.parent_dataset.tokenizer
-        self.subword_tokens = tokenizer.encode(self.string, add_special_tokens = False)
+        self.subword_tokens = tokenizer.encode(self.string, add_special_tokens = False)        
 
     def _get_subword_indices(self):
         # start = sum(len(el.subword_tokens) for el in self.parent_sentence.tokens[:index]) - 1
-        if self.index == 0
+        if self.index == 0:
             start = 0
         else:
-            start = self.parent_sentence[index - 1]
-        end = start + num_subwords
+            start = self.parent_sentence[self.index - 1]
+        end = start + len(self.subword_tokens) 
         self.subword_indices = (start, end)
-
 
     def __post_init__(self):
         self._get_subword_tokens()
@@ -87,9 +49,9 @@ class Span:
 
     def __hash__(self):
         hash_list = list()
-        if location_or_string_eval == 'location':
+        if self.location_or_string_eval == 'location':
             hash_list.append(self.indices)
-        elif location_or_string_eval == 'string':
+        elif self.location_or_string_eval == 'string':
             hash_list.append(self.string)
         
         if self.typed_eval:
@@ -104,9 +66,9 @@ class Span:
             if self.type != other.type:
                 return False
         if self.location_or_string_eval == 'location':
-            return self.indices == other.indices:
+            return self.indices == other.indices
         elif self.location_or_string_eval == 'string':
-            return self.string == other.string:
+            return self.string == other.string
         
         # return hash(self) == hash(other)
 
@@ -114,10 +76,10 @@ class Span:
         return len(range(*self.indices))
 
     def _get_in_sentence_indices(self):
-        self.in_sentence_indices = (tokens[0].in_sentence_index, tokens[-1].in_sentence_index + 1)
+        self.in_sentence_indices = (self.tokens[0].in_sentence_index, self.tokens[-1].in_sentence_index + 1)
 
     def _get_indices(self):
-        self.indices = (tokens[0].index, tokens[-1].index + 1)    
+        self.indices = (self.tokens[0].index, self.tokens[-1].index + 1)    
 
     def _get_parent_sentence(self):
         self.parent_sentence = self.tokens[0].parent_sentence
@@ -161,7 +123,7 @@ class Span:
             return Span(tokens)
     
     @classmethod
-    def from_indices(cls, indices, example)
+    def from_indices(cls, indices, example):
         if indices[0] >= 0 and indices[1] <= len(example):
             tokens = example.tokens[indices[0]:indices[1]]
             return Span(tokens)
@@ -315,7 +277,7 @@ class Cluster:
         return self.spans == other.spans
     
     def __len__(self):
-        return len(spans)
+        return len(self.spans)
 
     def pos_span_pairs(self):
        return [SpanPair(el1, el2) for el1, el2 in combinations(self.spans, 2)]
@@ -344,7 +306,7 @@ class ClusterPair:
 
     def __hash__(self):
         hash_list = [self.head, self.tail]
-        if typed_eval:
+        if self.typed_eval:
             hash_list.append(self.type)
         hash_tuple = tuple(hash_list)
         
@@ -363,7 +325,7 @@ class ClusterPair:
     def relation_type_negatives(self):
         '''This will be too many negatives. Want to filter out less common relation_types somehow'''
         
-        relation_types = class_converter.class2ix.keys()
+        relation_types = self.parent_example.relation_class_converter.class2ix.keys()
         return set(ClusterPair(self.head, self.tail, el) for el in relation_types)
 
     def cluster_negatives_cluster(self, cluster, head_or_tail):
@@ -374,8 +336,8 @@ class ClusterPair:
 
     def cluster_negatives(self):
         clusters = self.parent_example.clusters - set([self.head, self.tail])
-        hard_head_mutations = set(self.cluster_negatives_cluster(el, 'head') for el in clusters if self.el.class == self.head.class)
-        hard_tail_mutations = set(self.cluster_negatives_cluster(el, 'tail') for el in clusters if self.el.class == self.tail.class)
+        hard_head_mutations = set(self.cluster_negatives_cluster(el, 'head') for el in clusters if self.el.type == self.head.type)
+        hard_tail_mutations = set(self.cluster_negatives_cluster(el, 'tail') for el in clusters if self.el.type == self.tail.type)
         
         return hard_head_mutations | hard_tail_mutations
 

@@ -1,5 +1,6 @@
 #%% to-do list
 # config parsing
+# logging
 
 #%% libraries
 from os import path
@@ -76,22 +77,27 @@ class ELRELightningModule(LightningModule):
 
     import importlib
 
-    def parse_config(config):
-        pass
-
     def recursive_instantiate(self, config):
         if isinstance(config, dict):
+            if 'function' in config:
+                try:
+                    module = import_module('parameter_modules')
+                    config['function'] = getattr(module, config['function'])
+                except:
+                    module = import_module('modeling_classes')
+                    config['function'] = getattr(module, config['function'])
             if 'class' in config:
                 class_name = config['class']
                 class_config = config.get('config', {})
                 # module_name, class_name = class_name.rsplit('.', 1)
                 try:
                     module = import_module('modeling_classes')
+                    cls = getattr(module, class_name)
                 except:
                     module = import_module('parameter_modules')
-                cls = getattr(module, class_name)
+                    cls = getattr(module, class_name)
                 return cls(**self.recursive_instantiate(class_config))
-            elif 
+
             else:
                 return {k: self.recursive_instantiate(v) for k, v in config.items()}
         return config
