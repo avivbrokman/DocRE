@@ -322,30 +322,42 @@ class ClusterPair:
             return False
         return True
 
-    def relation_type_negatives(self):
-        '''This will be too many negatives. Want to filter out less common relation_types somehow'''
+    def _filter_positive_relations(self, cluster_pairs):
+        return cluster_pairs - self.parent_example.positive_cluster_pairs
+
+    def _null_relation(self):
+        return ClusterPair(self.head, self.tail, None)
+
+    def _relation_type_mutations(self):
         
         relation_types = self.parent_example.relation_class_converter.class2ix.keys()
-        return set(ClusterPair(self.head, self.tail, el) for el in relation_types)
+        mutated_relations_with_cluster_pair = set(ClusterPair(self.head, self.tail, el) for i, el in enumerate(relation_types) if i < 10)
+        negative_relations_with_cluster_pair = self._filter_positive_relations(mutated_relations_with_cluster_pair)
+        return negative_relations_with_cluster_pair
 
-    def cluster_negatives_cluster(self, cluster, head_or_tail):
+    def _mutate_cluster_pair(self, cluster, head_or_tail):
         if head_or_tail == 'head':
             return ClusterPair(cluster, self.tail, self.type)
         elif head_or_tail == 'tail':
             return ClusterPair(self.head, cluster, self.type)
 
-    def cluster_negatives(self):
+    def _cluster_mutations(self):
         clusters = self.parent_example.clusters - set([self.head, self.tail])
-        hard_head_mutations = set(self.cluster_negatives_cluster(el, 'head') for el in clusters if self.el.type == self.head.type)
-        hard_tail_mutations = set(self.cluster_negatives_cluster(el, 'tail') for el in clusters if self.el.type == self.tail.type)
+        head_mutations = set(self._mutate_cluster_pair(el, 'head') for el in clusters if self.el.type == self.head.type)
+        tail_mutations = set(self._mutate_cluster_pair(el, 'tail') for el in clusters if self.el.type == self.tail.type)
+
+        mutations = head_mutations | tail_mutations
+
+        negative_relations = self._filter_positive_relations(mutations)
         
-        return hard_head_mutations | hard_tail_mutations
+        return negative_relations
 
     def negative_cluster_pairs(self):
         negative_pairs = set()
-        if self.parent_example.parent_dataset.relation_class_converter:
-            negative_pairs.update(self.relation_type_negatives())
-        negative_pairs.update(self.cluster_negatives())
+        negative_pairs.add(self._null_relation())
+        negative_pairs.update(self._relation_type_mutations())
+        negative_pairs.update(self._cluster_mutations())
+
         return list(negative_pairs)
 
     def enumerate_span_pairs(self):

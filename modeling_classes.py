@@ -606,17 +606,3 @@ class RelationClassifier(BaseRelationClassifier):
     def filter_nonrelations(self, cluster_pairs):
         return [el for el in cluster_pairs if el.type]
 
-
-    
-
-
-        
-            
-
-            
-        
-            
-
-
-    
-

@@ -34,11 +34,11 @@ class ELRELightningModule(LightningModule):
         self.lm.config.max_position_embeddings = max_sequence_length
 
         if ner:
-            self.ner = ner
+            self.ner = self._recursive_instantiate(ner)
         if clusterer:
-            self.clusterer = clusterer
+            self.clusterer = self._recursive_instantiate(clusterer)
         if rc:
-            self.rc = rc
+            self.rc = self._recursive_instantiate(rc)
 
         # loss
         self.loss_coefficients = loss_coefficients
@@ -47,22 +47,25 @@ class ELRELightningModule(LightningModule):
 
         # gets scorer classes
         if ner:
-            self.ner_scorer_classes = ner_scorer_classes
+            self.ner_scorer_classes = self._instantiate_scorers(ner_scorer_classes)
         
         if clusterer:
-            self.coref_scorer_classes = coref_scorer_classes
-            self.cluster_scorer_classes = cluster_scorer_classes
+            self.coref_scorer_classes = self._instantiate_scorers(coref_scorer_classes)
+            self.cluster_scorer_classes = self._instantiate_scorers(cluster_scorer_classes)
         if rc:
-            self.rc_scorer_classes = rc_scorer_classes
+            self.rc_scorer_classes = self._instantiate_scorers(rc_scorer_classes)
 
         # instantiates calculators -- one for each scorer class
+        calculators = import_module('calculators')
+        calculator_class = getattr(calculators, calculator_class)
+
         if ner:
-            self.ner_performance_calculators = self._create_performance_calculators(ner_scorer_classes, calculator_class)
+            self.ner_performance_calculators = self._create_performance_calculators(self.ner_scorer_classes, calculator_class)
         if clusterer:
-            self.coref_performance_calculators = self._create_performance_calculators(coref_scorer_classes, calculator_class)
-            self.cluster_performance_calculators = self._create_performance_calculators(cluster_scorer_classes, calculator_class)
+            self.coref_performance_calculators = self._create_performance_calculators(self.coref_scorer_classes, calculator_class)
+            self.cluster_performance_calculators = self._create_performance_calculators(self.cluster_scorer_classes, calculator_class)
         if rc:
-            self.rc_performance_calculators = self._create_performance_calculators(rc_scorer_classes, calculator_class)
+            self.rc_performance_calculators = self._create_performance_calculators(self.rc_scorer_classes, calculator_class)
 
         # creates lists for storage of details of results
         self.validation_details = list()
@@ -77,7 +80,7 @@ class ELRELightningModule(LightningModule):
 
     import importlib
 
-    def recursive_instantiate(self, config):
+    def _recursive_instantiate(self, config):
         if isinstance(config, dict):
             if 'function' in config:
                 try:
@@ -101,7 +104,10 @@ class ELRELightningModule(LightningModule):
             else:
                 return {k: self.recursive_instantiate(v) for k, v in config.items()}
         return config
-
+    
+    def _instantiate_scorers(self, scorer_list):
+        scorers = import_module('scorers')
+        return [getattr(scorers, el) for el in scorer_list]
 
     def _create_performance_calculators(self, scorer_classes, performance_calculator_class):
         return {type(el).__name__: performance_calculator_class for el in scorer_classes}
@@ -157,10 +163,22 @@ class ELRELightningModule(LightningModule):
         return predicted_coreferent_pairs, predicted_clusters    
     
     def rc_training_step(self, example, token_embeddings):
-        candidate_cluster_pairs = example.positive_cluster_pairs + example.negative_cluster_pairs
+        # candidate_cluster_pairs = example.positive_cluster_pairs + example.negative_cluster_pairs
         
-        logits = self.rc(candidate_cluster_pairs, token_embeddings, self.trainer.datamodule.entity_type_converter)
-        gold_labels = self.rc.get_gold_labels(candidate_cluster_pairs)
+        # logits = self.rc(candidate_cluster_pairs, token_embeddings, self.rc.entity_type_converter)
+        # gold_labels = self.rc.get_gold_labels(candidate_cluster_pairs)
+
+        # loss = nll_loss(logits, gold_labels)
+
+        positive_logits = self.rc(example.positive_cluster_pairs, token_embeddings, self.rc.entity_type_converter)
+        negative_logits = self.rc(example.negative_cluster_pairs, token_embeddings, self.rc.entity_type_converter)
+        logits = torch.cat((positive_logits, negative_logits))
+
+        positive_gold_labels = self.rc.get_gold_labels(example.positive_cluster_pairs)
+        none_index = self.rc.relation_type_converter.type2index(None)
+        negative_gold_labels = [none_index] * len(example.negative_cluster_pairs)
+        negative_gold_labels = torch.tensor(negative_gold_labels).to(positive_gold_labels)
+        gold_labels = torch.cat((positive_gold_labels, negative_gold_labels))
 
         loss = nll_loss(logits, gold_labels)
 
