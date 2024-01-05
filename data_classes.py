@@ -241,6 +241,8 @@ class SpanPair:
 
         return {self.span1.indices, self.span2.indices, self.coref} == {other.span1.indices, other.span2.indices, other.coref}
             
+    def __post_init__(self):
+        self.spans = {self.span1, self.span2}
 
     def levenshtein_distance(self):
         return self.span1.lenvenshtein_distance(self.span2)
@@ -256,6 +258,22 @@ class SpanPair:
 
     def intervening_span(self):
         return self.span1.intervening_span(self.span2)
+    
+    # def does_overlap(self, other):
+    #     self_strings = {self.span1.string, self.span2.string}
+    #     other_strings = {other.span1.string, other.span2.string}
+
+    #     return self_strings & other_strings
+    #     # return bool(self_strings & other_strings)
+    
+    # def does_overlap2(self, cluster):
+    #     cluster_strings = set(el.string for el in cluster.spans)
+    #     pair_strings = {self.span1.string, self.span2.string}
+
+    #     return pair_strings & 
+
+        
+        
 
 
 #%% ClassConverter
@@ -267,6 +285,8 @@ class ClassConverter:
         self.class2index = dict(zip(self.classes, range(len(self.classes))))
         self.index2class = dict(zip(range(len(self.classes)), self.classes))
 
+    def __len__(self):
+        return len(self.classes)
 #%% Cluster
 @dataclass
 class Cluster:
@@ -444,7 +464,7 @@ class Dataset:
     relation_types: Optional[list[str]]
 
     def _get_type_converter(self, types):
-        types.append('NA')
+        types.append(None)
         return ClassConverter(types)
 
     def __post_init__(self):

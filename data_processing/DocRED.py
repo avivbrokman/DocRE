@@ -307,6 +307,8 @@ full_data = concatenate_datasets([train_data, valid_data, test_data])
 full_data = DocREDDataset(full_data)
 entity_types = full_data.get_entity_types()
 relation_types = full_data.get_relation_types()
+entity_type_converter = full_data.entity_type_converter
+relation_type_converter = full_data.relation_type_converter
 
 # processes all datasets
 print('train')
@@ -336,6 +338,8 @@ train_valid_data = train_valid_data.return_Dataset()
 # Saves everything
 torch.save(entity_types, os.path.join(output_data_path,'entity_types.save'))
 torch.save(relation_types, os.path.join(output_data_path,'relation_types.save'))
+torch.save(entity_type_converter, os.path.join(output_data_path,'entity_type_converter.save'))
+torch.save(relation_type_converter, os.path.join(output_data_path,'relation_type_converter.save'))
 
 torch.save(train_data, os.path.join(output_data_path,'train_data.save'))    
 torch.save(valid_data, os.path.join(output_data_path,'valid_data.save'))    

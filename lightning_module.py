@@ -1,17 +1,36 @@
+#%% to-do list
+# config parsing
+
 #%% libraries
+from os import path
 import torch
 from torch.nn.functional import nll_loss
 from torch.optim import AdamW
 from lightning import LightningModule
 from transformers import AutoModel
+from importlib import import_module
 
 #%% body
 class ELRELightningModule(LightningModule):
-    def __init__(self, lm_checkpoint, ner, clusterer, rc, loss_coefficients, lm_learning_rate, learning_rate, candidate_span_pair_constructor, candidate_cluster_pair_constructor, ner_scorer_classes, coref_scorer_classes, cluster_scorer_classes, rc_scorer_classes, calculator_class):
+    def __init__(self, dataset_name, lm_checkpoint, ner, clusterer, rc, loss_coefficients, lm_learning_rate, learning_rate, ner_scorer_classes, coref_scorer_classes, cluster_scorer_classes, rc_scorer_classes, calculator_class):
         super().__init__()
         self.save_hyperparameters()
         
+
+        # gets type converters
+        self.entity_type_converter = torch.load(path.join('data', 'processed', dataset_name, 'entity_type_converter.save'))
+        self.relation_type_converter = torch.load(path.join('data', 'processed', dataset_name, 'relation_type_converter.save'))
+
+        ner['num_entity_classes'] = len(self.entity_type_converter)
+        rc['num_relation_classes'] = len(self.relation_type_converter)
+
+        # instantiates neural components
         self.lm = AutoModel.from_pretrained(lm_checkpoint)
+
+        # allows BERT to handle longer sequences
+        max_sequence_length = 1024
+        self.lm.resize_token_embeddings(max_sequence_length)
+        self.lm.config.max_position_embeddings = max_sequence_length
 
         if ner:
             self.ner = ner
@@ -20,15 +39,12 @@ class ELRELightningModule(LightningModule):
         if rc:
             self.rc = rc
 
+        # loss
         self.loss_coefficients = loss_coefficients
         self.lm_learning_rate = lm_learning_rate
         self.learning_rate = learning_rate
 
-        if clusterer:
-            self.candidate_span_pair_constructor = candidate_span_pair_constructor
-        if rc:
-            self.candidate_cluster_pair_constructor = candidate_cluster_pair_constructor
-
+        # gets scorer classes
         if ner:
             self.ner_scorer_classes = ner_scorer_classes
         
@@ -38,6 +54,7 @@ class ELRELightningModule(LightningModule):
         if rc:
             self.rc_scorer_classes = rc_scorer_classes
 
+        # instantiates calculators -- one for each scorer class
         if ner:
             self.ner_performance_calculators = self._create_performance_calculators(ner_scorer_classes, calculator_class)
         if clusterer:
@@ -46,11 +63,39 @@ class ELRELightningModule(LightningModule):
         if rc:
             self.rc_performance_calculators = self._create_performance_calculators(rc_scorer_classes, calculator_class)
 
+        # creates lists for storage of details of results
         self.validation_details = list()
         self.test_details = list()
 
         self.validation_performance = list()
         self.test_performance = list()
+
+    # def setup(self, stage = None):
+    #     self.entity_type_converter = getattr(self.trainer.datamodule, 'entity_type_converter', None)
+    #     self.relation_type_converter = getattr(self.trainer.datamodule, 'relation_type_converter', None)
+
+    import importlib
+
+    def parse_config(config):
+        pass
+
+    def recursive_instantiate(self, config):
+        if isinstance(config, dict):
+            if 'class' in config:
+                class_name = config['class']
+                class_config = config.get('config', {})
+                # module_name, class_name = class_name.rsplit('.', 1)
+                try:
+                    module = import_module('modeling_classes')
+                except:
+                    module = import_module('parameter_modules')
+                cls = getattr(module, class_name)
+                return cls(**self.recursive_instantiate(class_config))
+            elif 
+            else:
+                return {k: self.recursive_instantiate(v) for k, v in config.items()}
+        return config
+
 
     def _create_performance_calculators(self, scorer_classes, performance_calculator_class):
         return {type(el).__name__: performance_calculator_class for el in scorer_classes}
@@ -97,6 +142,7 @@ class ELRELightningModule(LightningModule):
         logits = self.clusterer(candidate_span_pairs, token_embeddings)
 
         predicted_span_pairs = self.clusterer.predict(candidate_span_pairs, logits)
+        predicted_clusters = self.clusterer.cluster(predicted_span_pairs)
         
         predicted_coreferent_pairs = self.clusterer.keep_coreferent_pairs(predicted_span_pairs)
         
@@ -157,7 +203,7 @@ class ELRELightningModule(LightningModule):
                          
         if self.clusterer:
             if self.ner:
-                candidate_span_pairs = self.candidate_span_pair_constructor(predicted_mentions)
+                candidate_span_pairs = self.clusterer.exhaustive_intratype_pairs(predicted_mentions)
             else:
                 candidate_span_pairs = example.positive_span_pairs + example.negative_span_pairs
 
@@ -165,7 +211,8 @@ class ELRELightningModule(LightningModule):
 
         if self.rc:
             if self.cluster:
-                candidate_cluster_pairs = self.candidate_cluster_pair_constructor(predicted_clusters)
+                candidate_cluster_pairs = self.rc.self.rc.dataset2cluster_pair_constructor[self.dataset_name](predicted_clusters)
+                
             else:
                 candidate_cluster_pairs = example.positive_cluster_pairs + example.negative_cluster_pairs
                 
@@ -264,4 +311,5 @@ class ELRELightningModule(LightningModule):
         cluster_optimizer = {'params': self.cluster.parameters(), 'lr': self.learning_rate}
         rc_optimizer = {'params': self.rc.parameters(), 'lr': self.learning_rate}
         
-        return AdamW([lm_optimizer, ner_optimizer, cluster_optimizer, rc_optimizer])        
+        return AdamW([lm_optimizer, ner_optimizer, cluster_optimizer, rc_optimizer])
+        

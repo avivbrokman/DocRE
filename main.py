@@ -14,8 +14,12 @@ from modeling_classes import NER, Coreference, RelationClassifier
 #%% CLI
 class ELRECLI(LightningCLI):
     def after_instantiate_classes(self):
-        model_params = self.config_init['model']  # Gather initial model config
-        data_params = self.config_init['data']  # Gather data module properties
+        model_params = self.config_init['model']
+        
+        for el 
+        
+        model_params = self.config_init['model'] 
+        data_params = self.config_init['data']
 
         # Update model config with data module properties
         model_params['input_dims'] = data_params.get('entity_type_converter', None)

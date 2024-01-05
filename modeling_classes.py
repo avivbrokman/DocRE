@@ -1,6 +1,6 @@
 #%% libraries
 import torch
-from torch.nn import Module
+from torch.nn import Module, LazyLinear
 import os
 from dataclasses import dataclass, field
 from typing import Optional
@@ -8,7 +8,8 @@ from copy import deepcopy
 from collections import defaultdict
 from itertools import combinations, product
 
-from data_classes import SpanPair, ClusterPair
+from data_classes import SpanPair, Cluster, ClusterPair
+from parameter_modules import LazySquareLinear
 # from utils import apply
 
 
@@ -108,14 +109,14 @@ class TokenEmbedder(Module):
 #%% NER again
 class NER(Module):
     
-    def __init__(self, span_embedder, length_embedder, prediction_layer):
+    def __init__(self, span_embedder, length_embedder, num_entity_classes):
         super().__init__()
         self.span_embedder = span_embedder
         self.length_embedder = length_embedder
-        self.prediction_layer = prediction_layer
+        self.prediction_layer = LazyLinear(num_entity_classes)
 
     def filter_nonentities(self, spans):
-        return [el for el in spans if el.predicted_type != 'NA']
+        return [el for el in spans if el.type]
 
     def forward(self, spans, token_embeddings):
         
@@ -175,7 +176,7 @@ class Coreference_with_span_embeddings(Module):
 
     def forward(self, span_pairs, spans, pooled_token_embeddings):
         
-        positive_spans_embeddings = [(el_span, pooled_token_embeddings[i]) for i, el in enumerate(spans) if el.class != 'NA']
+        positive_spans_embeddings = [(el, pooled_token_embeddings[i]) for i, el in enumerate(spans) if el.type]
         span2embedding = dict(positive_spans_embeddings) 
         
         span_pair_embeddings = []
@@ -243,17 +244,11 @@ class Coreference_with_span_embeddings(Module):
 #         return logits
 
 
-#%% levenshtein gate
-class Gate(Module):
-    def __init__(self, gate):
-        super().__init__()
-        self.gate = gate
 
-    def forward(span_)
 
 #%% coreference
 class Coreference(Module):
-    def __init__(self, levenshtein_embedder, levenshtein_gate, prediction_layer, clusterer, span_embedder, length_embedder, length_difference_embedder,):
+    def __init__(self, levenshtein_embedder, levenshtein_gate, prediction_layer, span_embedder, length_embedder, length_difference_embedder):
         
         super().__init__()
 
@@ -261,7 +256,6 @@ class Coreference(Module):
         self.levenshtein_embedder = levenshtein_embedder
         self.levenshtein_gate = levenshtein_gate
         self.prediction_layer = prediction_layer
-        self.clusterer = clusterer
 
         # optional
         self.span_embedder = span_embedder
@@ -269,10 +263,11 @@ class Coreference(Module):
         self.length_difference_embedder = length_difference_embedder
 
     def get_spans_from_span_pairs(self, span_pairs):
-        spans = set()
-        for el in span_pairs:
-            spans.add(el.span1)
-            spans.add(el.span2)
+        # spans = set()
+        # for el in span_pairs:
+        #     spans.update(el.spans)
+
+        spans = set.union(*[el.spans for el in span_pairs])
 
         return list(spans)
 
@@ -297,24 +292,22 @@ class Coreference(Module):
 
         span_pair_embeddings = torch.cat(span1_embeddings, span2_embeddings)
 
-        if self.levenshtein_embedder:
-            levenshtein_distances = [el.levenshtein_distance() for el in span_pairs]
-            levenshtein_embeddings = self.levenshtein_embedder(levenshtein_distances)
-
-
-        if self.levenshtein_gate:
-            
-            gate = self.levenshtein_gate(torch.cat((span1_embeddings, span2_embeddings)))
-            levenshtein_embeddings = gate * levenshtein_embeddings
-
-        if self.levenshtein_embedder:
-            span_pair_embeddings = torch.cat((span_pair_embeddings, levenshtein_embeddings))
-
+        # length difference embedding
         if self.length_difference_embedder:
             length_differences = [el.length_difference() for el in span_pairs]
             length_difference_embeddings = self.length_difference_embedder(length_differences)
 
             span_pair_embeddings = torch.cat((span_pair_embeddings, length_difference_embeddings))
+
+        # levenshtein
+        if self.levenshtein_embedder:
+            levenshtein_distances = [el.levenshtein_distance() for el in span_pairs]
+            levenshtein_embeddings = self.levenshtein_embedder(levenshtein_distances)
+
+            if self.levenshtein_gate: 
+                levenshtein_embeddings = self.levenshtein_gate(levenshtein_embeddings, span_pair_embeddings)
+
+            span_pair_embeddings = torch.cat((span_pair_embeddings, levenshtein_embeddings))
 
         logits = self.prediction_layer(span_pair_embeddings)
 
@@ -360,7 +353,45 @@ class Coreference(Module):
             span_pairs.update(set(SpanPair(el1, el2) for el1, el2 in combinations(class_spans, 2)))
 
         return span_pairs
+
+    def _get_singletons(self, predicted_span_pairs):
+        coreferences = set(el for el in predicted_span_pairs if el.coref)
+
+        mentions = self.get_spans_from_span_pairs(predicted_span_pairs)
+        linked_mentions = self.get_spans_from_span_pairs(coreferences)  
+
+        singletons = mentions - linked_mentions
+
+        return singletons 
+
+
+    def _combine(self, cluster1, cluster2):
+        strings1 = set(el.string for el in cluster1)
+        strings2 = set(el.string for el in cluster2)
+
+        if strings1 & strings2:
+            return cluster1 | cluster2
         
+    def cluster_from_coreferences(self, mentions, coreferences):
+        singletons = self._get_singletons(mentions, coreferences)
+        doubletons = [el.spans for el in coreferences]
+        unfinished_clusters = singletons + doubletons
+        finished_clusters = list()
+
+        while unfinished_clusters:
+            cluster = unfinished_clusters.pop()
+            for el in unfinished_clusters:
+                combined = self._combine(cluster, el)
+                if combined:
+                    unfinished_clusters.append(combined)
+                    break
+            else:
+                finished_clusters.append(cluster)
+        
+        clusters = set(Cluster(el) for el in finished_clusters)
+
+        return clusters
+
 
 # #%% Iterative Clusterer
 # class IterativeClusterer(nn.Module):
@@ -375,6 +406,13 @@ class Coreference(Module):
 #%% RC base class
 class BaseRelationClassifier(Module):
     
+    def __init__(self):
+        super().__init__()
+        
+        self.dataset2cluster_pair_constructor = {'CDR': self.CDR_candidate_cluster_pair_constructor,
+                                                 'DocRED': self.DocRED_candidate_cluster_pair_constructor,
+                                                 'BioRED': self.BioRED_candidate_cluster_pair_constructor}
+
     def CDR_candidate_cluster_pair_constructor(self, clusters):
     
         chemicals = set(el for el in clusters if el.type == 'chemical')
@@ -407,7 +445,7 @@ class BaseRelationClassifier(Module):
 
 #%% RC
 class RelationClassifier(BaseRelationClassifier):
-    def __init__(self, local_pooler, prediction_layer,span_embedder, intervening_span_embedder, span_pooler, cluster_embedder, type_embedder):
+    def __init__(self, local_pooler, prediction_layer ,span_embedder, intervening_span_embedder, span_pooler, cluster_embedder, type_embedder, num_relation_types):
         
         super().__init__()
 
@@ -522,10 +560,12 @@ class RelationClassifier(BaseRelationClassifier):
         intervening_span_embeddings = self.intervening_span_embedder(intervening_spans, intervening_span_embeddings)
 
         span2embedding = dict(zip(spans, span_embeddings))
-        intervening_span2embedding = dict(zip(intervening, intervening_span_embeddings))
+        intervening_span2embedding = dict(zip(intervening_spans, intervening_span_embeddings))
 
         # individual cluster embeddings
-        cluster_embeddings = self.embed_clusters(el, span2embedding)
+        clusters = self.get_clusters_from_cluster_pairs(cluster_pairs)
+        
+        cluster_embeddings = self.embed_clusters(clusters, span2embedding)
 
         types = [entity_type_converter.class2index(el.type) for el in clusters]
         type_embeddings = self.type_embedder(types)
@@ -564,7 +604,7 @@ class RelationClassifier(BaseRelationClassifier):
         return cluster_pairs
 
     def filter_nonrelations(self, cluster_pairs):
-        return [el for el in cluster_pairs if el.type != 'NA']
+        return [el for el in cluster_pairs if el.type]
 
 
     

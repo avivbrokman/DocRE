@@ -1,22 +1,154 @@
 seed_everything: 0
 trainer:
-  logger: true
+  logger: True
+  accelerator: gpu
+  accumulate_grad_batches: 1
+  fast_dev_run: False #2 #50
+  max_epochs: 30 #2
+
+MLP2Pooler_config: &MLP2Pooler_config
+  class: MLP2Pooler
+  config:
+    intermediate_dim: 128
+    output_dim: 64
+
+ActivatedMLP2_config: &ActivatedMLP2_config
+  class: MLP2
+  config: 
+    intermediate_dim: 128
+    output_dim: 64
+    final_activation: True
+
+# NER Settings
+span_embedder_config: @span_embedder_config
+  class: SpanEmbedder
+  config:
+    token_embedder: 
+      class: Identity
+      config: null
+    token_pooler: max_pool
+    span_embedder: 
+      <<: *ActivatedMLP2_config
+
+
+length_embedder_config: &length_embedder_config
+  class: Embedding
+  config:
+    num_embeddings: 100
+    embedding_dim: 16
+
+NER_config: &NER_config
+  class: NER
+  config:
+    span_embedder: 
+      <<: *MLP2Pooler_config
+    length_embedder: 
+      <<: *length_embedder_config
+    num_entity_classes: null # to be filled in later
+
+
+# clusterer settings
+levenshtein_embedder_config: &levenshtein_embedder_config
+  class: Embedding
+  config:
+    num_embeddings: 500
+    embedding_dim: 16
+
+levenshtein_gate_config: &levenshtein_gate_config
+  class: Gate
+  config: null
+
+cluster_prediction_layer_config: @cluster_prediction_layer_config
+  class: MLP2
+  config: 
+    intermediate_dim: 128
+    output_dim: 2
+   
+length_embedder_config: &length_embedder_config
+  class: Embedding
+  config:
+    num_embeddings: 100
+    embedding_dim: 32
+
+length_difference_embedder: &length_difference_embedder
+  class: Embedding
+  config:
+    num_embeddings: 100
+    embedding_dim: 32
+
+
+
+clusterer_config: &clusterer_config
+  class: Coreference
+  config: 
+    levenshtein_embedder: 
+      <<: *levenshtein_embedder_config
+    levenshtein_gate:
+      <<: *levenshtein_gate_config
+    prediction_layer:
+      <<: *cluster_prediction_layer_config
+    span_embedder:
+      <<: *span_embedder_config
+    length_embedder:
+      <<: *length_embedder_config 
+    length_difference_embedder:
+      <<: *length_difference_embedder
+
+
+
+
+
+# RC config
+RC_prediction_layer_config: @RC_prediction_layer_config
+  class: MLP2
+  config: 
+    intermediate_dim: 128
+    output_dim: null # to be determined in module
+
+type_embedder_config: @type_embedder_config
+  class: Embedding
+  config:
+    num_embeddings: 10
+    embedding_dim: 16
+
+
+RC_config: &RC_config
+  class: relation_classifier
+  config:
+    local_pooler: 
+      <<: *MLP2Pooler_config
+    prediction_layer:
+      <<: *RC_prediction_layer_config
+    span_embedder: 
+      <<: *span_embedder_config
+    intervening_span_embedder: 
+      <<: *MLP2Pooler_config
+    span_pooler:
+      <<: *MLP2Pooler_config
+    cluster_embedder:
+      <<: *MLP2Pooler_config
+    type_embedder: 
+      <<: *type_embedder_config
+    num_relation_classes: null # to be filled in lightning module
+
+
+
+
 model:
   lm_checkpoint: bert-base-uncased
-  ner: NER
+  ner:
+    <<: *NER_settings
   clusterer: Coreference
   rc: RC
   loss_coefficients: [1,1,1]
   lm_learning_rate: 5e-5
   learning_rate: 1e-3
-  candidate_span_pair_constructor: # I think this should be removed
-  candidate_cluster_pair_constructor: # Get from clusterer
   ner_scorer_classes:
     - TypedLocationNERScorer
     - TypedStringNERScorer
     - UntypedLocationNERScorer
     - UntypedStringNERScorer
-  coref_scorer_classes: null
+  coref_scorer_classes: Null
   cluster_scorer_classes: 
     - TypedLocationStrictClusterScorer
     - TypedStringStrictClusterScorer
