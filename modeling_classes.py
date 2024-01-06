@@ -1,16 +1,14 @@
 #%% libraries
 import torch
 from torch.nn import Module, LazyLinear
-import os
-from dataclasses import dataclass, field
-from typing import Optional
+from torch.nn.functional import sigmoid
 from copy import deepcopy
 from collections import defaultdict
 from itertools import combinations, product
 
 from data_classes import SpanPair, Cluster, ClusterPair
 from parameter_modules import LazySquareLinear
-# from utils import apply
+from utils import generalized_replace
 
 
 #%% useful functions
@@ -120,7 +118,7 @@ class NER(Module):
 
     def forward(self, spans, token_embeddings):
         
-        pooled_token_embeddings = self.span_embedder(spans, token_embeddings)
+        pooled_token_embeddings = self.token_pooler(spans, token_embeddings)
 
         span_lengths = [len(el) for el in spans]
         length_embeddings = self.length_embedder(span_lengths)
@@ -137,32 +135,12 @@ class NER(Module):
         
         return labels
 
-    # def predict(self, spans, logits):
-    #     index2class = spans[0].parent_example.parent_dataset.entity_converter.index2class
-        
-    #     spans = deepcopy(spans)
-    #     for el in spans:
-    #         el.parent_example = None
-        
-    #     type_indices = torch.argmax(logits, dim = 1)
-
-    #     for i, el in enumerate(spans):
-    #         el.predicted_type = index2class[type_indices[i]]
-
-    #     return spans
-
-    # def predict(self, spans, logits, entity_converter):
-    def predict(self, spans, logits):
+    def predict(self, spans, logits, entity_type_converter):
         entity_converter = spans[0].parent_example.parent_dataset.entity_converter
-        
-        spans = deepcopy(spans)
-        for el in spans:
-            el.parent_example = None
         
         type_indices = torch.argmax(logits, dim = 1)
 
-        for i, el in enumerate(spans):
-            el.type = entity_converter.index2class[type_indices[i]]
+        spans = [generalized_replace(el, parent_example = None, type = entity_type_converter.index2class(type_indices[i])) for i, el in enumerate(spans)]
 
         return spans
 
@@ -445,13 +423,15 @@ class BaseRelationClassifier(Module):
 
 #%% RC
 class RelationClassifier(BaseRelationClassifier):
-    def __init__(self, local_pooler, prediction_layer ,span_embedder, intervening_span_embedder, span_pooler, cluster_embedder, type_embedder, num_relation_types):
+    def __init__(self, local_pooler, prediction_layer, span_embedder, intervening_span_embedder, span_pooler, cluster_embedder, type_embedder, is_multilabel, rc_cutoff):
         
         super().__init__()
 
         # necessary
         self.local_pooler = local_pooler
         self.prediction_layer = prediction_layer
+        self.is_multilabel = is_multilabel
+        self.rc_cutoff = rc_cutoff
         
         # optional
         self.span_embedder = span_embedder
@@ -550,7 +530,15 @@ class RelationClassifier(BaseRelationClassifier):
         embeddings = [workhorse(el for el in cluster_pairs)]
         return torch.stack(embeddings)
 
+    def filter_logits(self, cluster_pairs, logits):
+        
+        types = [el.type for el in cluster_pairs]
+        type_indices = cluster_pairs
+
+        return 
+    
     def forward(self, cluster_pairs, token_embeddings, entity_type_converter):
+        cluster_pairs = list(cluster_pairs)
 
         spans = self.get_spans_from_cluster_pairs(cluster_pairs)
         intervening_spans = self.get_intervening_spans(cluster_pairs)
@@ -590,18 +578,32 @@ class RelationClassifier(BaseRelationClassifier):
     def get_gold_labels(self, cluster_pairs):
         return [el.type for el in cluster_pairs]
 
-    def predict(self, cluster_pairs, logits, entity_type_converter):
-        
-        cluster_pairs = deepcopy(cluster_pairs)
-        for el in cluster_pairs:
-            el.parent_example = None
-
+    def _unilabel_predict(self, cluster_pairs, logits, relation_type_converter):
         type_indices = torch.argmax(logits, dim = 1)
-
-        for i, el in enumerate(cluster_pairs):
-            el.predicted_type = entity_type_converter.index2class[type_indices[i]]
-
+        cluster_pairs = [generalized_replace(el, parent_example = None, type = relation_type_converter.index2class(type_indices[i])) for i, el in enumerate(cluster_pairs)]
+        
         return cluster_pairs
+
+    def _multilabel_predict(self, cluster_pairs, logits, relation_type_converter):
+        probabilities = sigmoid(logits)
+        predicted_indices = (probabilities > self.rc_cutoff).nonzero(as_tuple = False)
+        predicted_indices = predicted_indices.tolist()
+
+        predicted_relations = list()
+        for el in predicted_indices:
+            cluster_pair = cluster_pairs[el[0]]
+            relation_type = relation_type_converter.index2class(el[1])
+            predicted_relation = generalized_replace(cluster_pair, parent_example = None, type = relation_type)
+            predicted_relations.append(predicted_relation)
+
+        return predicted_relations
+
+    def predict(self, cluster_pairs, logits, relation_type_converter):
+        if not self.is_multilabel:
+            return self._unilabel_predict(cluster_pairs, logits, relation_type_converter)
+            
+        if self.is_multilabel:
+            return self._multilabel_predict(cluster_pairs, logits, relation_type_converter)
 
     def filter_nonrelations(self, cluster_pairs):
         return [el for el in cluster_pairs if el.type]

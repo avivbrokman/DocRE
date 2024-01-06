@@ -1,6 +1,3 @@
-#%% To-do list
-
-
 #%% libraries
 import os
 import torch
@@ -244,8 +241,27 @@ class ClassConverter:
     classes: list[str]
 
     def __post_init__(self):
-        self.class2index = dict(zip(self.classes, range(len(self.classes))))
-        self.index2class = dict(zip(range(len(self.classes)), self.classes))
+        self.class2index_dict = dict(zip(self.classes, range(len(self.classes))))
+        self.index2class_dict = dict(zip(range(len(self.classes)), self.classes))
+
+    def class2index(self, object_):
+        if isinstance(object_, list):
+            return [self.class2index(el) for el in object_]
+        elif isinstance(object_, set):
+            return set(self.class2index(el) for el in object_)
+        elif isinstance(object_, str) or object_ is None:
+            return self.class2index_dict[object_]
+    
+    def index2class(self, object_):
+        if isinstance(object_, list):
+            return [self.index2class(el) for el in object_]
+        elif isinstance(object_, set):
+            return set(self.index2class(el) for el in object_)
+        elif isinstance(object_, int):
+            return self.index2class_dict[object_]
+        
+        
+
 
     def __len__(self):
         return len(self.classes)
@@ -354,7 +370,7 @@ class ClusterPair:
 
     def negative_cluster_pairs(self):
         negative_pairs = set()
-        negative_pairs.add(self._null_relation())
+        # negative_pairs.add(self._null_relation())
         negative_pairs.update(self._relation_type_mutations())
         negative_pairs.update(self._cluster_mutations())
 

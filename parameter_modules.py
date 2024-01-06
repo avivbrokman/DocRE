@@ -46,8 +46,10 @@ class MLP2(Module):
         x = self.linear1(x)
         x = self.activation(x)
         x = self.linear2(x)
-        if self.final_activation:
+        if self.final_activation is True:
             x = self.activation(x)
+        elif self.final_activation:
+            x = self.final_activation(x)
         
         return x
     
@@ -113,5 +115,6 @@ class Gate(Module):
         gate = self.linear1(focal) + self.linear2(extra)
         gate = sigmoid(gate)
         return gate * focal
+
 
     

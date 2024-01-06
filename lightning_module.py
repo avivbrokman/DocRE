@@ -22,8 +22,8 @@ class ELRELightningModule(LightningModule):
         self.entity_type_converter = torch.load(path.join('data', 'processed', dataset_name, 'entity_type_converter.save'))
         self.relation_type_converter = torch.load(path.join('data', 'processed', dataset_name, 'relation_type_converter.save'))
 
-        ner['num_entity_classes'] = len(self.entity_type_converter)
-        rc['num_relation_classes'] = len(self.relation_type_converter)
+        ner['config']['num_entity_classes'] = len(self.entity_type_converter)
+        rc['config']['num_relation_classes'] = len(self.relation_type_converter)
 
         # instantiates neural components
         self.lm = AutoModel.from_pretrained(lm_checkpoint)
@@ -87,8 +87,13 @@ class ELRELightningModule(LightningModule):
                     module = import_module('parameter_modules')
                     config['function'] = getattr(module, config['function'])
                 except:
-                    module = import_module('modeling_classes')
-                    config['function'] = getattr(module, config['function'])
+                    try:
+                        module = import_module('modeling_classes')
+                        config['function'] = getattr(module, config['function'])
+                    except:
+                        module = import_module('torch.nn.functional')
+                        config['function'] = getattr(module, config['function'])
+
             if 'class' in config:
                 class_name = config['class']
                 class_config = config.get('config', {})
@@ -133,7 +138,7 @@ class ELRELightningModule(LightningModule):
         
         logits = self.ner(candidate_spans, token_embeddings)
         
-        predicted_spans = self.ner.predict(candidate_spans, logits)
+        predicted_spans = self.ner.predict(candidate_spans, logits, self.entity_type_converter)
         predicted_mentions = self.ner.filter_nonentities(predicted_spans)
 
         return predicted_mentions
@@ -170,9 +175,15 @@ class ELRELightningModule(LightningModule):
 
         # loss = nll_loss(logits, gold_labels)
 
-        positive_logits = self.rc(example.positive_cluster_pairs, token_embeddings, self.rc.entity_type_converter)
-        negative_logits = self.rc(example.negative_cluster_pairs, token_embeddings, self.rc.entity_type_converter)
-        logits = torch.cat((positive_logits, negative_logits))
+        positive_logits = self.rc(example.positive_cluster_pairs, token_embeddings, self.rc.relation_type_converter)
+        negative_logits = self.rc(example.negative_cluster_pairs, token_embeddings, self.rc.relation_type_converter)
+
+        keep_positive_logits = [positive_logits[:,i, self.rc.relation_type_converter.class2index(el.type)] for i, el in enumerate(example.positive_cluster_pairs)]
+        keep_negative_logits = [negative_logits[:,i, self.rc.relation_type_converter.class2index(el.type)] for i, el in enumerate(example.negative_cluster_pairs)] 
+
+        logits = keep_positive_logits + keep_negative_logits
+        logits = torch.tensor(logits).to(positive_logits)
+
 
         positive_gold_labels = self.rc.get_gold_labels(example.positive_cluster_pairs)
         none_index = self.rc.relation_type_converter.type2index(None)

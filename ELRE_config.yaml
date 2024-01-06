@@ -32,8 +32,9 @@ span_embedder_config: @span_embedder_config
       config: null
     token_pooler: 
       function: max_pool
-    span_embedder: 
-      <<: *ActivatedMLP2_config
+    prediction_layer: 
+      <<: *MLP2_config
+    
 
 
 length_embedder_config: &length_embedder_config
@@ -45,6 +46,8 @@ length_embedder_config: &length_embedder_config
 NER_config: &NER_config
   class: NER
   config:
+    token_pooler: 
+      function: max_pool
     span_embedder: 
       <<: *MLP2Pooler_config
     length_embedder: 
@@ -99,16 +102,13 @@ clusterer_config: &clusterer_config
     length_difference_embedder:
       <<: *length_difference_embedder
 
-
-
-
-
 # RC config
 RC_prediction_layer_config: @RC_prediction_layer_config
   class: MLP2
   config: 
     intermediate_dim: 128
     output_dim: null # to be determined in module
+
 
 type_embedder_config: @type_embedder_config
   class: Embedding
@@ -135,6 +135,9 @@ RC_config: &RC_config
     type_embedder: 
       <<: *type_embedder_config
     num_relation_classes: null # to be filled in lightning module
+    is_multilabel: True
+    rc_cutoff: 0.5
+
 
 
 

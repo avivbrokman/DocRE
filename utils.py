@@ -1,13 +1,13 @@
 # %% libraries
 import os
 from collections import Counter
-import importlib
-import re
 import json
-import torch
+from copy import deepcopy
+from dataclasses import is_dataclass, replace
+
 
 import random
-\
+
 # %% body
 
 def save_json(data, filename):
@@ -51,3 +51,17 @@ def apply(fun):
         return [fun(el) for el in _list]
 
     return list_version_of_fun
+
+# def exclusion_deepcopy(instance, exclude_attr = None, new_value = None):
+#     kwargs = {f.name: deepcopy(getattr(instance, f.name)) for f in fields(instance) if f.name != exclude_attr}
+#     if exclude_attr and new_value is not None:
+#         kwargs[exclude_attr] = new_value
+#     return type(instance)(**kwargs)
+
+def generalized_replace(instance, **changes):
+    if is_dataclass(instance):
+        return replace(instance, **changes)
+    elif isinstance(instance, list):
+        return [replace(el, **changes) for el in instance if is_dataclass(el)]
+    elif isinstance(instance, set):
+        return {replace(el, **changes) for el in instance if is_dataclass(el)}

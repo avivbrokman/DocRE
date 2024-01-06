@@ -1,16 +1,14 @@
 #%% libraries
 from os import path
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datasets import load_dataset, concatenate_datasets
 import torch
-from typing import List, Optional
 from collections import Counter
-import json
 
 from transformers import AutoTokenizer
 
-from utils import make_dir, unlist, mode, save_json
-from data_classes import Token, Span, Sentence, SpanPair, ClassConverter, Cluster, ClusterPair, Example, Dataset
+from utils import make_dir, unlist, mode
+from data_classes import Token, Span, Sentence, Cluster, ClusterPair, Example
 
 #%% DocREDWord
 @dataclass
@@ -35,7 +33,7 @@ class DocREDWord:
 #%% DocREDSentence        
 @dataclass
 class DocREDSentence:
-    annotation: List[str]
+    annotation: list[str]
     index: int
     parent_example: ...
     Sentence: Sentence = None
