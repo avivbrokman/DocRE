@@ -1,42 +1,62 @@
 #%% libraries
 import os
 import torch
-from dataclasses import dataclass, field
+from dataclasses import dataclass, replace
 from Levenshtein import distance
 from typing import Optional
 from itertools import combinations, product
 
-from utils import make_dir, unlist
+from utils import make_dir, unlist, parentless_print
 
 
 
 #%% Token
+@parentless_print
 @dataclass
 class Token:
     string: str
     in_sentence_index: int
     index: int
     # tokenizer_indices: int
-    parent_sentence: Sentence
+    parent_sentence: ...
+
+    def __len__(self):
+        return len(self.subword_tokens)
 
     def _get_subword_tokens(self):
         tokenizer = self.parent_sentence.parent_example.parent_dataset.tokenizer
-        self.subword_tokens = tokenizer.encode(self.string, add_special_tokens = False)        
+        self.subword_tokens = tokenizer.encode(self.string, add_special_tokens = False)
 
+    def _previous_in_sentence_subword_length(self):
+        return sum(len(el) for el in self.parent_sentence[0:self.in_sentence_index])    
+
+    @classmethod        
+    def _sentence_subword_length(cls, sentence):
+        return sum(len(el) for el in sentence) 
+    
+    def _previous_subword_length(self):
+
+        previous_sentences = self.parent_sentence.parent_example.sentences[0:self.parent_sentence.index]
+        previous_sentence_lengths = sum(Token._sentence_subword_length(el) for el in previous_sentences)
+        previous_length = previous_sentence_lengths + self._previous_in_sentence_subword_length()
+        return previous_length
+
+    
     def _get_subword_indices(self):
         # start = sum(len(el.subword_tokens) for el in self.parent_sentence.tokens[:index]) - 1
-        if self.index == 0:
-            start = 0
-        else:
-            start = self.parent_sentence[self.index - 1]
-        end = start + len(self.subword_tokens) 
+        # if self.index == 0:
+        #     start = 0
+        # else:           
+        start = self._previous_subword_length()
+        end = start + len(self) 
         self.subword_indices = (start, end)
 
     def __post_init__(self):
         self._get_subword_tokens()
         self._get_subword_indices()
 #%% Span
-@dataclass(frozen = True)
+@parentless_print
+@dataclass#(frozen = True)
 class Span:
     tokens: list[Token]
     type: Optional[str] = None
@@ -156,21 +176,30 @@ class Span:
     def negative_spans(self):
         return self.subspans() | self.superspans()          
 
-    def __post_init__(self):
+    def process(self):
         self._get_in_sentence_indices()
         self._get_indices()
         self._get_parent_sentence()
         self._get_string()
         self._get_subword_indices()
 
-    
+    @classmethod
+    def stub(cls):
+        return Span(list())
 
 #%% Sentence
+@parentless_print
 @dataclass
 class Sentence:
     tokens: list[Token]
     index: int
-    parent_example: Example
+    parent_example: ...
+
+    def __len__(self):
+        return len(self.tokens)
+    
+    def __getitem__(self, idx):
+        return self.tokens[idx]
 
     def candidate_spans(self, max_length):
         spans = set()
@@ -180,15 +209,19 @@ class Sentence:
                 spans.add(span)
 
         return spans
+    
+    @classmethod
+    def stub(cls):
+        return Sentence(list(), None, None)
 
-    def __len__(self):
-        return len(self.tokens)
+
 #%% SpanPair
+@parentless_print
 @dataclass
 class SpanPair:
     span1: Span
     span2: Span
-    parent_example: Example
+    parent_example: ...
     coref: Optional[int]
 
     def __hash__(self):
@@ -231,11 +264,16 @@ class SpanPair:
 
     #     return pair_strings & 
 
+    @classmethod
+    def stub(cls):
+        return SpanPair(None, None, None)
+
         
         
 
 
 #%% ClassConverter
+@parentless_print
 @dataclass
 class ClassConverter:
     classes: list[str]
@@ -266,11 +304,13 @@ class ClassConverter:
     def __len__(self):
         return len(self.classes)
 #%% Cluster
+@parentless_print
 @dataclass
 class Cluster:
     spans: set[Span]
+    parent_example: ...
+
     type: Optional[str] = None
-    parent_example: Example
     class_converter: Optional[ClassConverter] = None
 
     typed_eval: bool = True
@@ -304,16 +344,25 @@ class Cluster:
     def neg_span_pairs(self, others):
         return unlist([self.neg_span_pairs_cluster(el) for el in others])
 
-    def __post_init__(self):
+    def process(self):
         # self.class_index = self.class_converter.class2index[self.type]
         self.class_index = self.parent_example.parent_dataset.entity_type_converter.class2index[self.type]
 
+    @classmethod
+    def stub(cls):
+        return Cluster(set(), None)
+    
+    def populate(self, spans, parent_example, type, class_converter):
+        self = replace(self, spans = spans, parent_example = parent_example, type = type, class_converter = class_converter)
+
+
 #%% ClusterPair
+@parentless_print
 @dataclass
 class ClusterPair:
     head: Cluster
     tail: Cluster
-    parent_example: Example
+    parent_example: ...
 
     type: Optional[str] = None
 
@@ -378,8 +427,14 @@ class ClusterPair:
 
     def enumerate_span_pairs(self):
         return [SpanPair(el1, el2) for el1, el2 in product(self.head.spans, self.tail.spans)]
+    
+    @classmethod
+    def stub(cls):
+        return ClusterPair(None, None, None)
+
 
 #%% Example
+@parentless_print
 @dataclass
 class Example:
         
@@ -393,7 +448,7 @@ class Example:
     positive_cluster_pairs: list[ClusterPair]
 
     ### other
-    parent_dataset: Dataset
+    parent_dataset: ...
 
     def _get_mentions(self):
         self.mentions = set()
@@ -432,7 +487,7 @@ class Example:
     def _get_subword_tokens(self):
         self.subword_tokens = unlist([el.subword_tokens for el in self.tokens])
 
-    def __post_init__(self):
+    def process(self):
         self._get_tokens()
         # self._get_subword_tokens()
         self._get_mentions()
@@ -444,7 +499,25 @@ class Example:
         self._get_candidate_cluster_pairs()
         self._get_subword_tokens()
 
+    @classmethod
+    def stub(cls):
+        return Example(list(), set(), list(), None)
+    
+    def populate(self, sentences, clusters, positive_cluster_pairs, parent_dataset):
+        self.sentences = sentences
+        self.clusters = clusters
+        self.positive_cluster_pairs = positive_cluster_pairs
+        self.parent_dataset = parent_dataset
+
+        self.process()
+
+        
+
+    
+   
+
 #%% Dataset 
+@parentless_print
 @dataclass
 class Dataset:
 
@@ -457,7 +530,7 @@ class Dataset:
         types.append(None)
         return ClassConverter(types)
 
-    def __post_init__(self):
+    def process(self):
         # (a) entity types don't exist
         # (b) entity types
         if self.entity_types:
@@ -465,6 +538,14 @@ class Dataset:
         if self.relation_types:
             self.relation_type_converter = self._get_type_converter(self.relation_types)
 
-    def __get_item__(self, idx):
-        
+    def __getitem__(self, idx):
+    
         return self.examples[idx]
+
+    @classmethod
+    def stub(cls, tokenizer, entity_types, relation_types):
+        return Dataset(list(), tokenizer, entity_types, relation_types)
+    
+    def populate(self, examples):
+        self.examples = examples
+        self.process()

@@ -1,23 +1,24 @@
 #%% libraries
 from os import path
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from datasets import load_dataset, concatenate_datasets
 import torch
 from collections import Counter
 
 from transformers import AutoTokenizer
 
-from utils import make_dir, unlist, mode
-from data_classes import Token, Span, Sentence, Cluster, ClusterPair, Example
+from utils import make_dir, unlist, mode, parentless_print
+
+from data_classes import Token, Span, Sentence, Cluster, ClusterPair, Example, Dataset
 
 #%% DocREDWord
+@parentless_print
 @dataclass
 class DocREDWord:
     annotation: str
     in_sentence_index: int
     parent_sentence: ...
     Token: Token = None
-    
 
     def _get_index(self):
         previous_sentences = self.parent_sentence.parent_example.sentences
@@ -27,10 +28,16 @@ class DocREDWord:
         self._get_index()
 
     def return_Token(self):
+        print('returning Token')
         if not self.Token:
+            print('get parent sentence')
             parent_Sentence = self.parent_sentence.Sentence
-            return Token(self.annotation, self.in_sentence_index, self.index, parent_Sentence)
-#%% DocREDSentence        
+            print('instantiating Token')
+            self.Token = Token(self.annotation, self.in_sentence_index, self.index, parent_Sentence)
+            return self.Token
+        
+#%% DocREDSentence
+@parentless_print
 @dataclass
 class DocREDSentence:
     annotation: list[str]
@@ -51,12 +58,22 @@ class DocREDSentence:
         self._get_words()
 
     def return_Sentence(self):
+        print('returning sentence')
         if not self.Sentence:
-            tokens = [el.return_Token() for el in self.annotation]
-            parent_Example = self.parent_example.Example
-            return Sentence(tokens, self.index, parent_Example)
+            print('make stub')
+            self.Sentence = Sentence.stub()
+            print('get parent')
+            self.Sentence.parent_example = self.parent_example.Example            
+            print('make Tokens')
+            self.Sentence.tokens = [el.return_Token() for el in self.words]
+            print('get index')
+            self.Sentence.index = self.index
+
+            # self.Sentence =  Sentence(tokens, self.index, parent_Example)
+            return self.Sentence
 
 #%% DocREDMention
+@parentless_print
 @dataclass
 class DocREDMention:
 
@@ -94,12 +111,17 @@ class DocREDMention:
 
     def return_Span(self):
         if not self.Span:
+            self.Span = Span.stub()
             parent_example = self.parent_entity.parent_example.Example
             sentence = parent_example.sentences[self.sentence_index]
-            tokens = sentence.tokens[self.in_sentence_word_span[0]:self.in_sentence_word_span[1]]
-            return Span(tokens, self.type)
+            self.Span.tokens = sentence.tokens[self.in_sentence_word_span[0]:self.in_sentence_word_span[1]]
+            self.Span.type = self.type
+            # self.Span = Span(tokens, self.type)
+            self.Span.process()
+            return self.Span
 
 #%% DocREDEntity
+@parentless_print
 @dataclass
 class DocREDEntity:
 
@@ -125,13 +147,32 @@ class DocREDEntity:
         self._get_mentions()
         self._get_type()
 
-    def return_Cluster(self, class_converter):
+    # # def return_Cluster(self, class_converter):
+    # def return_Cluster(self):
+    #     if not self.Cluster:
+            
+            
+    #         spans = set(el.return_Span() for el in self.mentions)
+    #         parent_Example = self.parent_example.Example
+
+    #         self.Cluster = Cluster(spans, parent_Example, self.type)
+
+    #         return self.Cluster
+        
+    def return_Cluster(self):
         if not self.Cluster:
-            spans = set(el.return_Span() for el in self.mentions)
-            parent_Example = self.parent_example.Example
-            return Cluster(spans, self.type, parent_Example)
+            self.Cluster = Cluster.stub()
+            
+            self.Cluster.spans = set(el.return_Span() for el in self.mentions)
+            self.Cluster.parent_example = self.parent_example.Example
+            self.Cluster.type = self.type
+
+            # self.Cluster = stub.populate(spans, parent_Example, self.type)
+            self.Cluster.process()
+            return self.Cluster
 
 #%% DocREDRelation
+@parentless_print
 @dataclass
 class DocREDRelation:
     
@@ -150,19 +191,28 @@ class DocREDRelation:
         self._get_entities()
 
     def return_ClusterPair(self):
-        head = self.head.return_Cluster()
-        tail = self.tail.return_Cluster()
-        relation_type = self.type
-        parent_Example = self.parent_example.Example
+        if not self.ClusterPair:
+            # self.ClusterPair = ClusterPair.stub()
+            # self.ClusterPair.head = self.head.return_Cluster()
+            # self.ClusterPair.tail = self.tail.return_Cluster()
+            # self.ClusterPair.type = self.type
+            # self.ClusterPair.parent_example = self.parent_example.Example
 
-        return ClusterPair(head, tail, parent_Example, relation_type)
+            head = self.head.return_Cluster()
+            tail = self.tail.return_Cluster()
+            parent_Example = self.parent_example.Example
+
+            self.ClusterPair = ClusterPair(head, tail, parent_Example, self.type)
+        return self.ClusterPair
 #%% DocREDExample
+@parentless_print
 @dataclass
 class DocREDExample:
 
     annotation: ...
     parent_dataset: ...
     Example: Example = None
+
 
     '''
     tokens
@@ -204,22 +254,33 @@ class DocREDExample:
         self._get_relations()
 
     # def return_Example(self):
-    #     sentences = [el.return_Sentence() for el in self.sentences]
-    #     clusters = [el.return_Cluster() for el in self.entities]
-    #     positive_cluster_pairs = [el.return_ClusterPair() for el in self.relations]
-        
-    #     return Example(sentences, clusters, positive_cluster_pairs, parent_dataset)
+    #     if not self.Example:
+    #         sentences = [el.return_Sentence() for el in self.sentences]
+    #         clusters = [el.return_Cluster() for el in self.entities]
+    #         positive_cluster_pairs = [el.return_ClusterPair() for el in self.relations]
+    #         parent_Dataset = self.parent_dataset.Dataset
+            
+    #         self.Example = Example(sentences, clusters, positive_cluster_pairs, parent_Dataset)
 
+    #         return self.Example
+        
     def return_Example(self):
         if not self.Example:
-            sentences = [el.return_Sentence() for el in self.sentences]
-            clusters = [el.return_Cluster() for el in self.entities]
-            positive_cluster_pairs = [el.return_ClusterPair() for el in self.relations]
-            parent_Dataset = self.parent_dataset.Dataset
+            self.Example = Example.stub()
+            # print(self.sentences)
+            # print('fields: ', fields(self.sentences[0]))
+            self.Example.parent_dataset = self.parent_dataset.Dataset
+            self.Example.sentences = [el.return_Sentence() for el in self.sentences]
+            self.Example.clusters = [el.return_Cluster() for el in self.entities]
+            self.Example.positive_cluster_pairs = [el.return_ClusterPair() for el in self.relations]            
             
-            return Example(sentences, clusters, positive_cluster_pairs, parent_Dataset)
+
+            # self.Example = stub.populate(sentences, clusters, positive_cluster_pairs, parent_Dataset)
+            self.Example.process()
+            return self.Example
         
 #%% DocREDDataset
+@parentless_print
 @dataclass
 class DocREDDataset:
     
@@ -277,11 +338,21 @@ class DocREDDataset:
         #     self._get_relation_type_converter()
         # self._convert_relation_types()
 
+    # def return_Dataset(self, tokenizer, entity_types, relation_types):
+    #     if not self.Dataset:
+    #         examples = [el.return_Example() for el in self.examples]        
+    #         self.Dataset = Dataset(examples, tokenizer, entity_types, relation_types)
+    #         return self.Dataset
+        
     def return_Dataset(self, tokenizer, entity_types, relation_types):
         if not self.Dataset:
-            examples = [el.return_Example() for el in self.examples]        
-            self.Dataset(examples, tokenizer, entity_types, relation_types)
-
+            self.Dataset = Dataset.stub(tokenizer, entity_types, relation_types)
+            self.Dataset.examples = [el.return_Example() for el in self.examples]
+            # stubs = [Example.stub(tokenizer, entity_types, relation_types)] * len(self.examples)
+            # examples = [el_ex.populate(el_stub) for el_stub, el_ex in zip(stubs, self.examples)]
+            # self.Dataset = stub.populate(examples)
+            self.Dataset.process()
+            return self.Dataset
     # def return_Dataset(self, tokenizer, entity_types, relation_types):
     #     examples = [el.return_Example() for el in self.examples]        
         

@@ -3,7 +3,7 @@ import os
 from collections import Counter
 import json
 from copy import deepcopy
-from dataclasses import is_dataclass, replace
+from dataclasses import is_dataclass, replace, fields
 
 
 import random
@@ -65,3 +65,63 @@ def generalized_replace(instance, **changes):
         return [replace(el, **changes) for el in instance if is_dataclass(el)]
     elif isinstance(instance, set):
         return {replace(el, **changes) for el in instance if is_dataclass(el)}
+
+# decorator
+# def parentless_print(cls):
+#     # Save the original __str__ method, if it exists
+#     original_str_method = cls.__str__ if '__str__' in cls.__dict__ else None
+
+#     def parentless_str(self):
+#         field_strs = []
+#         for field in vars(self):
+#             if not field.startswith('parent') and not field[0].isupper() and not field == 'annotation':
+#                 value = getattr(self, field)
+#                 field_strs.append(f"{field}={value}")
+#         return f"{cls.__name__}({', '.join(field_strs)})"
+
+#     # Set the new __str__ method for the class
+#     cls.__str__ = parentless_str
+
+#     # Return the modified class
+#     return cls
+
+# def parentless_print(cls):
+#     original_str_method = cls.__str__ if '__str__' in cls.__dict__ else None
+
+#     def parentless_str(self):
+#         field_strs = []
+#         for field, value in vars(self).items():
+#             if not field.startswith('parent') and not field[0].isupper() and field != 'annotation':
+#                 field_strs.append(f"{field}={value}")
+#         return f"{cls.__name__}({', '.join(field_strs)})"
+
+#     cls.__str__ = parentless_str
+#     return cls
+
+# def parentless_print(cls):
+#     def parentless_str(self):
+#         field_strs = []
+#         for field in fields(self):
+#             field_name = field.name
+#             if not field_name.startswith('parent') and not field_name[0].isupper() and field_name != 'annotation':
+#                 value = getattr(self, field_name)
+#                 field_strs.append(f"{field_name}={value}")
+#         return f"{cls.__name__}({', '.join(field_strs)})"
+
+#     cls.__str__ = parentless_str
+#     return cls
+
+
+def parentless_print(cls):
+    def parentless_str(self):
+        field_strs = []
+        for field in fields(self):
+            value = getattr(self, field.name)
+            if field.name.startswith('parent') or field.name[0].isupper() or field.name == 'annotation':
+                field_strs.append(f"{field.name} = {'present' if value else value}")
+            else:
+                field_strs.append(f"{field.name} = {value}")
+        return f"{cls.__name__}({', '.join(field_strs)})"
+
+    cls.__str__ = parentless_str
+    return cls
