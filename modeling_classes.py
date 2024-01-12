@@ -47,22 +47,25 @@ def retrieve_token_embeddings_of_spans(spans, token_embeddings):
 
 #%% span embedder
 class SpanEmbedder(Module):
-    def __init__(self, token_embedder, token_pooler, span_embedder):
+    def __init__(self, token_embedder, token_pooler, vector_embedder):
         self.token_embedder = token_embedder
         self.token_pooler = token_pooler
-        self.span_embedder = span_embedder
+        self.vector_embedder = vector_embedder
 
     def _pooled_token_embedding(self, span, token_embeddings):
-            span_token_embeddings = retrieve_token_embeddings_of_span(el)
-            pooled_embedding = self.pooler(span_token_embeddings)
+            span_token_embeddings = retrieve_token_embeddings_of_span(span, token_embeddings)
+            pooled_embedding = self.token_pooler(span_token_embeddings)
             return pooled_embedding
 
-    def forward(self, spans, token_embeddings):
+    def forward(self, spans, token_embeddings, extra_embeddings = None):
         token_embeddings = self.token_embedder(token_embeddings)
 
         pooled_embeddings = [self._pooled_token_embedding(el, token_embeddings) for el in spans]
 
-        span_embeddings = self.span_embedder(pooled_embeddings)
+        if extra_embeddings:
+            pooled_embeddings = torch.cat((pooled_embeddings, extra_embeddings))
+        
+        span_embeddings = self.vector_embedder(pooled_embeddings)
 
         return span_embeddings
 
@@ -117,16 +120,14 @@ class NER(Module):
         return [el for el in spans if el.type]
 
     def forward(self, spans, token_embeddings):
-        
-        pooled_token_embeddings = self.token_pooler(spans, token_embeddings)
 
         span_lengths = [len(el) for el in spans]
         length_embeddings = self.length_embedder(span_lengths)
 
-        span_embeddings = torch.cat((pooled_token_embeddings, length_embeddings))
-        
+        span_embeddings = self.span_embedder(spans, token_embeddings, length_embeddings)
+
         logits = self.prediction_layer(span_embeddings)
-        
+                
         return logits#, pooled_token_embeddings
 
     def get_gold_labels(self, spans):
@@ -146,11 +147,22 @@ class NER(Module):
 
 #%% clustering
 class Coreference_with_span_embeddings(Module):
-    def __init__(self, levenshtein_embedder, levenshtein_gate, prediction_layer):
+    def __init__(self, 
+                 span_embedder, 
+                 length_embedder, 
+                 levenshtein_embedder, 
+                 levenshtein_gate,
+                 length_difference_embedder,
+                 num_coref_classes):
         super().__init__()
+        self.span_embedder = span_embedder
+        self.length_embedder = length_embedder
+
         self.levenshtein_embedder = levenshtein_embedder
         self.levenshtein_gate = levenshtein_gate
-        self.prediction_layer = prediction_layer
+        self.length_difference_embedder = length_difference_embedder
+
+        self.prediction_layer = LazyLinear(num_coref_classes)
 
     def forward(self, span_pairs, spans, pooled_token_embeddings):
         
@@ -161,7 +173,7 @@ class Coreference_with_span_embeddings(Module):
         for el in span_pairs:
             span1_pooled_token_embedding = span2embedding[el.span1]
             span2_pooled_token_embedding = span2embedding[el.span2]
-            levenshtein_distance = span1.levenshtein_distance(span2)
+            levenshtein_distance = el.span1.levenshtein_distance(el.span2)
 
             levenshtein_embedding = self.levenshtein_embedder[levenshtein_distance]
             gate = self.levenshtein_gate(torch.cat((span1_pooled_token_embedding, span2_pooled_token_embedding)))

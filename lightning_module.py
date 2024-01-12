@@ -81,6 +81,7 @@ class ELRELightningModule(LightningModule):
     import importlib
 
     def _recursive_instantiate(self, config):
+        print('using _recursive_instantiate')
         if isinstance(config, dict):
             if 'function' in config:
                 try:

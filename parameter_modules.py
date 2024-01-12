@@ -30,7 +30,20 @@ def max_pool(x):
 #         x = softmax(x, -1)
         
 #         return x
-    
+
+#%%
+class MLP1(Module):
+    def __init__(self, output_dim, activation = mish):
+        super().__init__()
+
+        self.linear = LazyLinear(output_dim)
+        self.activation = activation
+
+        def forward(self, x):
+            x = self.linear(x)
+            x = self.activation(x)
+            return x
+
 #%% MLP2
 class MLP2(Module):
     def __init__(self, intermediate_dim, output_dim, activation = mish, final_activation = False):
@@ -55,8 +68,6 @@ class MLP2(Module):
     
 #%% Identity
 class Identity(Module):
-    def __init__(self):
-        super().__init__()
 
     def forward(self, x):
         return x

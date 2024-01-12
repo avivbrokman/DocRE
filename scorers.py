@@ -1,5 +1,3 @@
-#%% Reminder!  Deal with predictions, in terms of how spans are constructed, i.e. .type =.
-
 #%% libraries
 from dataclasses import dataclass, field, replace
 from collections import defaultdict
