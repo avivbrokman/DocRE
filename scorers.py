@@ -2,42 +2,26 @@
 from dataclasses import dataclass, field, replace
 from collections import defaultdict
 
-from data_classes import Relation
+from utils import generalized_replace
+from data_classes import Span, SpanPair, Cluster, ClusterPair
+# from data_classes import ClusterPair
 #%% Base Scorer
 @dataclass
 class Scorer:
 
     predicted: set
     gold: set
-
-    def adjust_span_mode(self, span, typed_mode, location_or_string_mode):
+    
+    def get_eval_objects(self, instance, typed_eval, location_or_string_eval):
+        if isinstance(instance, list):
+            return [self.get_eval_objects(el, typed_eval, location_or_string_eval) for el in instance]
+        if isinstance(instance, set):
+            return set(self.get_eval_objects(el, typed_eval, location_or_string_eval) for el in instance)
+        if isinstance(instance, (Span, SpanPair, Cluster, ClusterPair)):
+            return instance.eval_copy(typed_eval, location_or_string_eval)
         
-        return replace(span, type_mode = typed_mode, location_or_string_mode = location_or_string_mode)
-
-    def adjust_spans_mode(self, spans, typed_mode, location_or_string_mode):
         
-        return set(self.adjust_span_mode(el, typed_mode, location_or_string_mode) for el in spans)
-        
-    def adjust_cluster_mode(self, cluster, typed_mode, location_or_string_mode):
-
-        spans = self.adjust_spans_mode(cluster.spans)
-        
-        return replace(cluster, spans = spans, type_mode = typed_mode, location_or_string_mode = location_or_string_mode)
-
-    def adjust_clusters_mode(self, clusters, typed_mode, location_or_string_mode, strict_or_relaxed_mode):
-        
-        return set(self.adjust_cluster_mode(el, typed_mode, location_or_string_mode, strict_or_relaxed_mode) for el in clusters)
-
-    def adjust_relation_mode(self, relation, typed_mode, location_or_string_mode):
-
-        head = self.adjust_cluster_mode(head, typed_mode, location_or_string_mode)
-        tail = self.adjust_cluster_mode(tail, typed_mode, location_or_string_mode)
-
-        return replace(relation, head = head, tail = tail, typed_mode = typed_mode, location_or_string_mode = location_or_string_mode)
-
-    def adjust_relations_mode(self, relations, typed_mode, location_or_string_mode):
-        
-        return set(self.adjust_relation_mode(el, typed_mode, location_or_string_mode) for el in relations)
+   
 
 #%% Base Uniclass Scorers
 @dataclass
@@ -61,8 +45,8 @@ class MulticlassScorer(Scorer):
 
     def get_multiclass_scores(self):
         # multiclass
-        multiclass_objects = defaultdict(defaultdict(set))
-        multiclass_scores = defaultdict(default_dict(lambda: 0))
+        multiclass_objects = defaultdict(lambda: defaultdict(set))
+        multiclass_scores = defaultdict(lambda: defaultdict(lambda: 0))
         
         for el in self.TP_objects:
             multiclass_objects[el.type]['TP'].add(el)
@@ -96,6 +80,12 @@ class MulticlassScorer(Scorer):
         self.FN = len(self.FN_objects)
 
         self.get_multiclass_scores()
+
+    def __post_init__(self):
+        self.score()
+
+    def performance_counts(self):
+        return self.multiclass_scores
 
 #%%
 @dataclass
@@ -156,6 +146,10 @@ class RelaxedScorer(MulticlassScorer):
 
         self.get_multiclass_scores()
 
+    def __post_init__(self):
+        self.score()
+
+
     
 
 
@@ -163,27 +157,31 @@ class RelaxedScorer(MulticlassScorer):
 
 #%% NER Scorer
 @dataclass
-def TypedLocationNERScorer(MulticlassScorer):
+class TypedLocationNERScorer(MulticlassScorer):
     def __post_init__(self):
-        self.adjust_spans_mode('typed', 'location')
+        self.gold = self.get_eval_objects(self.gold, True, 'location')
+        self.predicted = self.get_eval_objects(self.predicted, True, 'location')
         self.score()
 
 @dataclass
-def TypedStringNERScorer(MulticlassScorer):
+class TypedStringNERScorer(MulticlassScorer):
     def __post_init__(self):
-        self.adjust_spans_mode('typed', 'string')    
+        self.gold = self.get_eval_objects(self.gold, True, 'string')
+        self.predicted = self.get_eval_objects(self.predicted, True, 'string')
         self.score()            
 
 @dataclass
-def UntypedLocationNERScorer(MulticlassScorer):
+class UntypedLocationNERScorer(MulticlassScorer):
     def __post_init__(self):
-        self.adjust_spans_mode('untyped', 'location')
+        self.gold = self.get_eval_objects(self.gold, False, 'location')
+        self.predicted = self.get_eval_objects(self.predicted, False, 'location')        
         self.score()
 
 @dataclass
-def UntypedStringNERScorer(MulticlassScorer):
+class UntypedStringNERScorer(MulticlassScorer):
     def __post_init__(self):
-        self.adjust_spans_mode('untyped', 'string') 
+        self.gold = self.get_eval_objects(self.gold, True, 'string')
+        self.predicted = self.get_eval_objects(self.predicted, True, 'string')        
         self.score() 
 
 
@@ -199,111 +197,127 @@ def UntypedStringNERScorer(MulticlassScorer):
 @dataclass
 class TypedLocationStrictClusterScorer(MulticlassScorer):
     def __post_init__(self):
-        self.adjust_clusters_mode('typed', 'location')
+        self.gold = self.get_eval_objects(self.gold, True, 'location')
+        self.predicted = self.get_eval_objects(self.predicted, True, 'location')        
         self.score()
 
 @dataclass
 class TypedStringStrictClusterScorer(MulticlassScorer):
     def __post_init__(self):
-        self.adjust_clusters_mode('typed', 'string')
+        self.gold = self.get_eval_objects(self.gold, True, 'string')
+        self.predicted = self.get_eval_objects(self.predicted, True, 'string')        
         self.score()
 
 ##
 @dataclass
 class UntypedLocationStrictClusterScorer(MulticlassScorer):
     def __post_init__(self):
-        self.adjust_clusters_mode('untyped', 'location')
+        self.gold = self.get_eval_objects(self.gold, False, 'location')
+        self.predicted = self.get_eval_objects(self.predicted, False, 'location')
         self.score()
 
 #
 @dataclass
 class UntypedStringStrictClusterScorer(MulticlassScorer):
     def __post_init__(self):
-        self.adjust_clusters_mode('untyped', 'string')
+        self.gold = self.get_eval_objects(self.gold, False, 'string')
+        self.predicted = self.get_eval_objects(self.predicted, False, 'string')
         self.score()
 
             
 
 
 @dataclass
-class TypedLocationRelaxedClusterScorer(ClusterScorer):
+class TypedLocationRelaxedClusterScorer(RelaxedScorer):
     
     def __post_init__(self):
-        self.adjust_clusters_mode('typed', 'location')
+        self.gold = self.get_eval_objects(self.gold, True, 'location')
+        self.predicted = self.get_eval_objects(self.predicted, True, 'location')
         self.score(True, 'cluster')
 
 @dataclass
 class TypedStringRelaxedClusterScorer(RelaxedScorer):
     
     def __post_init__(self):
-        self.adjust_clusters_mode('typed', 'string')
+        self.gold = self.get_eval_objects(self.gold, True, 'string')
+        self.predicted = self.get_eval_objects(self.predicted, True, 'string')
         self.score(True, 'cluster')
 
 @dataclass
 class UntypedLocationRelaxedClusterScorer(RelaxedScorer):
     
     def __post_init__(self):
-        self.adjust_clusters_mode('untyped', 'location')
+        self.gold = self.get_eval_objects(self.gold, False, 'location')
+        self.predicted = self.get_eval_objects(self.predicted, False, 'location')
         self.score(False, 'cluster')
 
 @dataclass
 class UntypedStringRelaxedClusterScorer(RelaxedScorer):
     
     def __post_init__(self):
-        self.adjust_clusters_mode('untyped', 'string')
+        self.gold = self.get_eval_objects(self.gold, False, 'string')
+        self.predicted = self.get_eval_objects(self.predicted, False, 'string')
         self.score(False, 'cluster')
 
 #%% RC Scorers
 @dataclass
 class TypedLocationStrictRCScorer(MulticlassScorer):
     def __post_init__(self):
-        self.adjust_cluster_pairs_mode('typed', 'location')
+        self.gold = self.get_eval_objects(self.gold, True, 'location')
+        self.predicted = self.get_eval_objects(self.predicted, True, 'location')
         self.score()
 
 #
 @dataclass
 class TypedStringStrictRCScorer(MulticlassScorer):
     def __post_init__(self):
-        self.adjust_cluster_pairs_mode('typed', 'string')
+        self.gold = self.get_eval_objects(self.gold, True, 'string')
+        self.predicted = self.get_eval_objects(self.predicted, True, 'string')
         self.score()
 
 ##
 @dataclass
 class UntypedLocationStrictRCScorer(MulticlassScorer):
     def __post_init__(self):
-        self.adjust_cluster_pairs_mode('untyped', 'location')
+        self.gold = self.get_eval_objects(self.gold, False, 'location')
+        self.predicted = self.get_eval_objects(self.predicted, False, 'location')
         self.score()
 
 #
 @dataclass
 class UntypedStringStrictRCScorer(MulticlassScorer):
     def __post_init__(self):
-        self.adjust_cluster_pairs_mode('untyped', 'string')
+        self.gold = self.get_eval_objects(self.gold, False, 'string')
+        self.predicted = self.get_eval_objects(self.predicted, False, 'string')
         self.score()
 
 
 @dataclass
 class TypedLocationRelaxedRCScorer(RelaxedScorer):
     def __post_init__(self):
-        self.adjust_cluster_pairs_mode('typed', 'location')
+        self.gold = self.get_eval_objects(self.gold, True, 'location')
+        self.predicted = self.get_eval_objects(self.predicted, True, 'location')
         self.score(True, 'relation')
 
 @dataclass
 class TypedStringRelaxedRCScorer(RelaxedScorer):
     def __post_init__(self):
-        self.adjust_cluster_pairs_mode('typed', 'string')
+        self.gold = self.get_eval_objects(self.gold, True, 'string')
+        self.predicted = self.get_eval_objects(self.predicted, True, 'string')
         self.score(True, 'relation')
 
 @dataclass
 class UntypedLocationRelaxedRCScorer(RelaxedScorer):
     def __post_init__(self):
-        self.adjust_cluster_pairs_mode('untyped', 'location')
+        self.gold = self.get_eval_objects(self.gold, False, 'location')
+        self.predicted = self.get_eval_objects(self.predicted, False, 'location')
         self.score(True, 'relation')
 
 @dataclass
 class UntypedStringRelaxedRCScorer(RelaxedScorer):
     def __post_init__(self):
-        self.adjust_cluster_pairs_mode('untyped', 'string')
+        self.gold = self.get_eval_objects(self.gold, False, 'string')
+        self.predicted = self.get_eval_objects(self.predicted, False, 'string')
         self.score(True, 'relation')
 
 

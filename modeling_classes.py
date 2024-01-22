@@ -1,28 +1,31 @@
+#%% to-do list
+# fix up RC component
+
 #%% libraries
 import torch
-from torch.nn import Module, LazyLinear
-from torch.nn.functional import sigmoid
+from torch.nn import LazyLinear, Embedding
+from torch.nn.functional import sigmoid, softmax
 from copy import deepcopy
 from collections import defaultdict
 from itertools import combinations, product
 
-from data_classes import SpanPair, Cluster, ClusterPair
-from parameter_modules import LazySquareLinear
+from data_classes_original import SpanPair, Cluster, ClusterPair
+from parameter_modules import EnhancedModule, LazySquareLinear
+
 from utils import generalized_replace
 
 
 #%% useful functions
 def retrieve_token_embeddings_of_span(span, token_embeddings):
-    tensors = [token_embeddings[i] for i in span.subword_indices]
-    tensor = torch.stack(tensors)
-    return tensor
+    return token_embeddings[span.subword_indices[0]:span.subword_indices[1]]
+
 
 def retrieve_token_embeddings_of_spans(spans, token_embeddings):
      
     def workhorse(span):
         tensors = [token_embeddings[i] for i in span.subword_indices]
         tensor = torch.stack(tensors)
-        return tensor
+        return token_embeddings[:, []]
 
     return [workhorse(el) for el in spans]
 
@@ -33,7 +36,7 @@ def retrieve_token_embeddings_of_spans(spans, token_embeddings):
 
 
 #%% token embedder
-# class TokenEmbedder(Module):
+# class TokenEmbedder(EnhancedModule):
     
 #     '''Embeds ALL tokens, not just ones in some list of span.  That means that there will be some wasted embedded tokens.  But this makes code easier, and there's probably not much wasted tokens.'''
     
@@ -46,32 +49,109 @@ def retrieve_token_embeddings_of_spans(spans, token_embeddings):
 
 
 #%% span embedder
-class SpanEmbedder(Module):
+# class SpanEmbedder(EnhancedModule):
+#     def __init__(self, token_embedder, token_pooler, vector_embedder):
+#         super().__init__()
+
+#         self.token_embedder = token_embedder
+#         self.token_pooler = token_pooler
+#         self.vector_embedder = vector_embedder
+
+
+#     def _pooled_token_embedding(self, span, token_embeddings):
+#             span_token_embeddings = retrieve_token_embeddings_of_span(span, token_embeddings)
+#             pooled_embedding = self.token_pooler(span_token_embeddings)
+#             pooled_embedding = pooled_embedding.squeeze(0)
+#             return pooled_embedding
+
+#     def forward(self, spans, token_embeddings, extra_embeddings = None):
+#         token_embeddings = self.token_embedder(token_embeddings)
+
+#         pooled_embeddings = [self._pooled_token_embedding(el, token_embeddings) for el in spans]
+ 
+#         pooled_embeddings = torch.stack(pooled_embeddings)
+
+#         if extra_embeddings is not None:
+#             pooled_embeddings = torch.cat((pooled_embeddings, extra_embeddings), dim = 1)
+        
+#         span_embeddings = self.vector_embedder(pooled_embeddings)
+
+#         return span_embeddings
+
+class SpanEmbedder(EnhancedModule):
     def __init__(self, token_embedder, token_pooler, vector_embedder):
+        super().__init__()
+
         self.token_embedder = token_embedder
         self.token_pooler = token_pooler
         self.vector_embedder = vector_embedder
+        
 
     def _pooled_token_embedding(self, span, token_embeddings):
+        if span.indices: # empty span
             span_token_embeddings = retrieve_token_embeddings_of_span(span, token_embeddings)
-            pooled_embedding = self.token_pooler(span_token_embeddings)
+            if span_token_embeddings.size(0) > 0:
+                pooled_embedding = self.token_pooler(span_token_embeddings)
+                pooled_embedding = pooled_embedding.squeeze(0)
+            else:
+                pass
+            # empty span
+            if not hasattr(self, 'pooled_embedding_size'):
+                self.pooled_embedding_size = pooled_embedding.size(-1)
+
             return pooled_embedding
+        else: 
+            try:
+                zero_embedding = torch.zeros(self.pooled_embedding_size, device = 'cuda')
+            except:
+                zero_embedding = torch.zeros(self.pooled_embedding_size)
+            return zero_embedding
 
     def forward(self, spans, token_embeddings, extra_embeddings = None):
         token_embeddings = self.token_embedder(token_embeddings)
 
-        pooled_embeddings = [self._pooled_token_embedding(el, token_embeddings) for el in spans]
+        # pooled_embeddings = [self._pooled_token_embedding(el, token_embeddings) for el in spans]
 
-        if extra_embeddings:
-            pooled_embeddings = torch.cat((pooled_embeddings, extra_embeddings))
-        
+        # empty span
+        empty_spans = list()
+        pooled_embeddings = list()
+        for i, el in enumerate(spans):
+            # if el:
+            pooled_embeddings.append(self._pooled_token_embedding(el, token_embeddings))
+            if not el:
+                empty_spans.append(i)
+            # else:
+            #     try:
+            #         pooled_embeddings.append(torch.zeros(self.pooled_embedding_size, device = 'cuda'))
+            #     except:
+            #         pooled_embeddings.append(torch.zeros(self.pooled_embedding_size))
+
+            #     empty_spans.append(i)
+
+        pooled_embeddings = torch.stack(pooled_embeddings)
+
+        if extra_embeddings is not None:
+            pooled_embeddings = torch.cat((pooled_embeddings, extra_embeddings), dim = 1)
+
         span_embeddings = self.vector_embedder(pooled_embeddings)
+        
+        # empty span
+        if not hasattr(self, 'null_span_embedder'):
+            embedding_dim = span_embeddings.size(-1)
+            try: 
+                self.null_span_embedder = Embedding(1, embedding_dim, device = 'cuda')
+            except:
+                self.null_span_embedder = Embedding(1, embedding_dim)
+
+        # empty span
+        for i in empty_spans:
+            zero_index = torch.tensor(0, device = self._device())
+            span_embeddings[i] = self.null_span_embedder(zero_index)
 
         return span_embeddings
 
-
 #%% LM
-class TokenEmbedder(Module):
+class TokenEmbedder(EnhancedModule):
     def __init__(self, dim_plm):
         super().__init__()
 
@@ -80,7 +160,7 @@ class TokenEmbedder(Module):
 
 #%% NER
 
-# class NER(Module):
+# class NER(EnhancedModule):
     
 #     def __init__(self, pooler, prediction_layer, length_embedder):
 #         # self.pooler = apply(pooler)
@@ -108,7 +188,7 @@ class TokenEmbedder(Module):
 #         return logits, pooled_token_embeddings
 
 #%% NER again
-class NER(Module):
+class NER(EnhancedModule):
     
     def __init__(self, span_embedder, length_embedder, num_entity_classes):
         super().__init__()
@@ -117,12 +197,11 @@ class NER(Module):
         self.prediction_layer = LazyLinear(num_entity_classes)
 
     def filter_nonentities(self, spans):
-        return [el for el in spans if el.type]
+        return set(el for el in spans if el.type)
 
     def forward(self, spans, token_embeddings):
-
-        span_lengths = [len(el) for el in spans]
-        length_embeddings = self.length_embedder(span_lengths)
+        
+        length_embeddings = self.length_embedder(spans)
 
         span_embeddings = self.span_embedder(spans, token_embeddings, length_embeddings)
 
@@ -130,127 +209,36 @@ class NER(Module):
                 
         return logits#, pooled_token_embeddings
 
-    def get_gold_labels(self, spans):
-        labels = [el.type for el in spans]
-        labels = torch.tensor(labels)
-        
+    def get_gold_labels(self, spans, entity_type_converter):
+        labels = [entity_type_converter.class2index(el.type) for el in spans]
+        labels = torch.tensor(labels, device = self._device())
         return labels
 
     def predict(self, spans, logits, entity_type_converter):
-        entity_converter = spans[0].parent_example.parent_dataset.entity_converter
+        # entity_converter = spans[0].parent_example.parent_dataset.entity_converter
         
         type_indices = torch.argmax(logits, dim = 1)
 
-        spans = [generalized_replace(el, parent_example = None, type = entity_type_converter.index2class(type_indices[i])) for i, el in enumerate(spans)]
+        spans = [generalized_replace(el, parent_sentence = None, type = entity_type_converter.index2class(type_indices[i])) for i, el in enumerate(spans)]
 
         return spans
 
-#%% clustering
-class Coreference_with_span_embeddings(Module):
-    def __init__(self, 
-                 span_embedder, 
-                 length_embedder, 
-                 levenshtein_embedder, 
-                 levenshtein_gate,
-                 length_difference_embedder,
-                 num_coref_classes):
-        super().__init__()
-        self.span_embedder = span_embedder
-        self.length_embedder = length_embedder
-
-        self.levenshtein_embedder = levenshtein_embedder
-        self.levenshtein_gate = levenshtein_gate
-        self.length_difference_embedder = length_difference_embedder
-
-        self.prediction_layer = LazyLinear(num_coref_classes)
-
-    def forward(self, span_pairs, spans, pooled_token_embeddings):
-        
-        positive_spans_embeddings = [(el, pooled_token_embeddings[i]) for i, el in enumerate(spans) if el.type]
-        span2embedding = dict(positive_spans_embeddings) 
-        
-        span_pair_embeddings = []
-        for el in span_pairs:
-            span1_pooled_token_embedding = span2embedding[el.span1]
-            span2_pooled_token_embedding = span2embedding[el.span2]
-            levenshtein_distance = el.span1.levenshtein_distance(el.span2)
-
-            levenshtein_embedding = self.levenshtein_embedder[levenshtein_distance]
-            gate = self.levenshtein_gate(torch.cat((span1_pooled_token_embedding, span2_pooled_token_embedding)))
-            levenshtein_embedding = gate * levenshtein_embedding
-
-            pair_embedding = torch.cat((span1_pooled_token_embedding, span2_pooled_token_embedding, levenshtein_embedding))
-
-            span_pair_embeddings.append(pair_embedding)
-
-        span_pair_embeddings = torch.stack(span_pair_embeddings)
-
-        logits = self.prediction_layer(span_pair_embeddings)
-
-        return logits
-#%% non-module coreference
-# class Coreference(Module):
-#     def __init__(self, token_embedder, token_pooler, length_embedder, length_difference_embedder, span_embedder, levenshtein_embedder, levenshtein_gate, prediction_layer):
-        
-#         # optional
-#         self.token_embedder = token_embedder
-#         self.token_pooler = token_pooler
-#         self.span_embedder = span_embedder
-
-#         self.length_embedder = length_embedder
-#         self.length_difference_embedder = length_difference_embedder
-
-#         # need
-#         self.levenshtein_embedder = levenshtein_embedder
-#         self.levenshtein_gate = levenshtein_gate
-#         self.prediction_layer = prediction_layer
-
-#     def forward(self, span_pairs, spans, token_embeddings):
-        
-        
-        
-
-#         positive_spans_embeddings = [(el_span, pooled_token_embeddings[i]) for i, el in enumerate(spans) if el.class != 'NA']
-#         span2embedding = dict(positive_spans_embeddings) 
-        
-#         span_pair_embeddings = []
-#         for el in span_pairs:
-#             span1_pooled_token_embedding = span2embedding[el.span1]
-#             span2_pooled_token_embedding = span2embedding[el.span2]
-#             levenshtein_distance = span1.levenshtein_distance(span2)
-
-#             levenshtein_embedding = self.levenshtein_embedder[levenshtein_distance]
-#             gate = self.levenshtein_gate(torch.cat((span1_pooled_token_embedding, span2_pooled_token_embedding)))
-#             levenshtein_embedding = gate * levenshtein_embedding
-
-#             pair_embedding = torch.cat((span1_pooled_token_embedding, span2_pooled_token_embedding, levenshtein_embedding))
-
-#             span_pair_embeddings.append(pair_embedding)
-
-#         span_pair_embeddings = torch.stack(span_pair_embeddings)
-
-#         logits = self.prediction_layer(span_pair_embeddings)
-
-#         return logits
-
-
-
-
 #%% coreference
-class Coreference(Module):
-    def __init__(self, levenshtein_embedder, levenshtein_gate, prediction_layer, span_embedder, length_embedder, length_difference_embedder):
-        
+class Coreference(EnhancedModule):
+    def __init__(self, levenshtein_embedder, levenshtein_gate, span_embedder, type_embedder, length_embedder, length_difference_embedder, num_coref_classes, coref_cutoff):
         super().__init__()
 
         # need
         self.levenshtein_embedder = levenshtein_embedder
         self.levenshtein_gate = levenshtein_gate
-        self.prediction_layer = prediction_layer
+        self.prediction_layer = LazyLinear(num_coref_classes)
 
-        # optional
         self.span_embedder = span_embedder
+        self.type_embedder = type_embedder
         self.length_embedder = length_embedder
         self.length_difference_embedder = length_difference_embedder
+
+        self.coref_cutoff = coref_cutoff
 
     def get_spans_from_span_pairs(self, span_pairs):
         # spans = set()
@@ -263,41 +251,47 @@ class Coreference(Module):
 
     def forward(self, span_pairs, token_embeddings):
         
+        # individual span embeddings
         spans = self.get_spans_from_span_pairs(span_pairs)
 
-        # individual span embeddings
-        span_embeddings = self.span_embedder(spans, token_embeddings)
+        if self.length_embedder:
+            length_embeddings = self.length_embedder(spans)
 
         if self.length_embedder:
-            span_lengths = [len(el) for el in spans]
-            length_embeddings = self.length_embedder(span_lengths)
+            span_embeddings = self.span_embedder(spans, token_embeddings, length_embeddings)
+        else:
+            span_embeddings = self.span_embedder(spans, token_embeddings)
 
-            span_embeddings = torch.cat((span_embeddings, length_embeddings))
-        
         # pair embeddings
         span2embedding = dict(zip(spans, span_embeddings))
 
-        span1_embeddings = span2embedding([el.span1 for el in span_pairs])
-        span2_embeddings = span2embedding([el.span2 for el in span_pairs])
+        span1_embeddings = [span2embedding[el.span1] for el in span_pairs]
+        span2_embeddings = [span2embedding[el.span2] for el in span_pairs]
 
-        span_pair_embeddings = torch.cat(span1_embeddings, span2_embeddings)
+        span1_embeddings = torch.stack(span1_embeddings)
+        span2_embeddings = torch.stack(span2_embeddings)
+
+        span_pair_embeddings = torch.cat((span1_embeddings, span2_embeddings), dim = 1)
 
         # length difference embedding
         if self.length_difference_embedder:
-            length_differences = [el.length_difference() for el in span_pairs]
-            length_difference_embeddings = self.length_difference_embedder(length_differences)
+            length_difference_embeddings = self.length_difference_embedder(span_pairs)
 
-            span_pair_embeddings = torch.cat((span_pair_embeddings, length_difference_embeddings))
+            span_pair_embeddings = torch.cat((span_pair_embeddings, length_difference_embeddings), dim = 1)
+
+        if self.type_embedder:
+            type_embeddings = self.type_embedder(span_pairs)
+
+            span_pair_embeddings = torch.cat((span_pair_embeddings, type_embeddings), dim = 1)
 
         # levenshtein
         if self.levenshtein_embedder:
-            levenshtein_distances = [el.levenshtein_distance() for el in span_pairs]
-            levenshtein_embeddings = self.levenshtein_embedder(levenshtein_distances)
+            levenshtein_embeddings = self.levenshtein_embedder(span_pairs)
 
             if self.levenshtein_gate: 
                 levenshtein_embeddings = self.levenshtein_gate(levenshtein_embeddings, span_pair_embeddings)
 
-            span_pair_embeddings = torch.cat((span_pair_embeddings, levenshtein_embeddings))
+            span_pair_embeddings = torch.cat((span_pair_embeddings, levenshtein_embeddings), dim = 1)
 
         logits = self.prediction_layer(span_pair_embeddings)
 
@@ -305,7 +299,7 @@ class Coreference(Module):
 
     def get_gold_labels(self, span_pairs):
         labels = [el.coref for el in span_pairs]
-        labels = torch.tensor(labels)
+        labels = torch.tensor(labels, device = self._device())
         
         return labels
 
@@ -314,14 +308,16 @@ class Coreference(Module):
 
     def predict(self, span_pairs, logits):
         
-        span_pairs = deepcopy(span_pairs)
-        for el in span_pairs:
-            el.parent_example = None
+        span_pairs = generalized_replace(span_pairs, parent_example = None)
+        # span_pairs = deepcopy(span_pairs)
+        # for el in span_pairs:
+        #     el.parent_example = None
 
-        coref_indices = torch.argmax(logits, dim = 1)
+        probs = sigmoid(logits)
+        coref_indices = torch.nonzero(probs[:,:,1].squeeze() > self.coref_cutoff).squeeze()
 
         for i, el in enumerate(span_pairs):
-            el.predicted_coref = coref_indices[i]
+            el.coref = 1 if i in coref_indices else 0
 
         return span_pairs
     
@@ -333,7 +329,6 @@ class Coreference(Module):
             object_dict[el.type].add(el)
 
         return object_dict
-
 
     def exhaustive_intratype_pairs(self, spans):
         spans_by_type = self._get_objects_by_type(spans)
@@ -394,7 +389,7 @@ class Coreference(Module):
 
 
 #%% RC base class
-class BaseRelationClassifier(Module):
+class BaseRelationClassifier(EnhancedModule):
     
     def __init__(self):
         super().__init__()
@@ -435,25 +430,28 @@ class BaseRelationClassifier(Module):
 
 #%% RC
 class RelationClassifier(BaseRelationClassifier):
-    def __init__(self, local_pooler, prediction_layer, span_embedder, intervening_span_embedder, span_pooler, cluster_embedder, type_embedder, is_multilabel, rc_cutoff):
+    def __init__(self, span_embedder, intervening_span_embedder, span_pooler, type_embedder, local_pooler, cluster_pair_embedder, token_distance_embedder, sentence_distance_embedder, num_relation_classes, is_multilabel, rc_cutoff):
         
         super().__init__()
 
-        # necessary
-        self.local_pooler = local_pooler
-        self.prediction_layer = prediction_layer
-        self.is_multilabel = is_multilabel
-        self.rc_cutoff = rc_cutoff
-        
-        # optional
         self.span_embedder = span_embedder
         self.intervening_span_embedder = intervening_span_embedder
         self.span_pooler = span_pooler # use this or cluster_embedder
-        self.cluster_embedder = cluster_embedder # use this or span_pooler
+        # self.cluster_embedder = cluster_embedder # use this or span_pooler
         self.type_embedder = type_embedder
+        self.local_pooler = local_pooler
 
-        if self.span_pooler and self.cluster_embedder:
-            raise ValueError('Use exactly one of span_pooler and cluster_embedder')
+        self.cluster_pair_embedder = cluster_pair_embedder
+        self.token_distance_embedder = token_distance_embedder
+        self.sentence_distance_embedder = sentence_distance_embedder
+
+        self.prediction_layer = LazyLinear(num_relation_classes)
+        self.is_multilabel = is_multilabel
+        self.rc_cutoff = rc_cutoff
+
+
+        # if self.span_pooler and self.cluster_embedder:
+        #     raise ValueError('Use exactly one of span_pooler and cluster_embedder')
 
     def get_spans_from_cluster_pairs(self, cluster_pairs):
         spans = set()
@@ -465,10 +463,14 @@ class RelationClassifier(BaseRelationClassifier):
 
     def get_intervening_spans(self, cluster_pairs):
         spans = set()
-        if self.intervening_span_embedder:
-            for el_cluster_pair in cluster_pairs:
-                for el_span_pair in el_cluster_pair.enumerate_span_pairs():
-                    spans.add(el_span_pair.intervening_span())
+        # if self.intervening_span_embedder:
+        #     for el_cluster_pair in cluster_pairs:
+        #         for el_span_pair in el_cluster_pair.enumerate_span_pairs():
+        #             spans.add(el_span_pair.intervening_span())
+
+        for el_cluster_pair in cluster_pairs:
+            for el_span_pair in el_cluster_pair.enumerate_span_pairs():
+                spans.add(el_span_pair.intervening_span())
 
         return spans
 
@@ -489,7 +491,9 @@ class RelationClassifier(BaseRelationClassifier):
         return cluster_embedding
 
     def embed_clusters(self, clusters, span2embedding):
-        return [self.embed_cluster(el, span2embedding) for el in clusters]
+        cluster_embeddings =  [self.embed_cluster(el, span2embedding) for el in clusters]
+        cluster_embeddings = torch.stack(cluster_embeddings)
+        return cluster_embeddings
 
     def local_cluster_pair_embeddings(self, cluster_pairs, span2embedding):
 
@@ -499,19 +503,11 @@ class RelationClassifier(BaseRelationClassifier):
 
             def token_distance():
 
-                distances = [el.token_distance() for el in span_pairs]
-
-                embeddings = self.token_distance_embedder(distances)
-
-                return embeddings
+                return self.token_distance_embedder(span_pairs)
 
             def sentence_distance():
 
-                distances = [el.sentence_distance() for el in span_pairs]
-
-                embeddings = self.sentence_distance_embedder(distances) 
-
-                return embeddings
+                return self.sentence_distance_embedder(span_pairs) 
 
             def intervening_span():
                 
@@ -521,14 +517,14 @@ class RelationClassifier(BaseRelationClassifier):
 
                 return embeddings
 
-            embeddings = torch.cat((token_distance(), sentence_distance(), intervening_span()))
+            embeddings = torch.cat((token_distance(), sentence_distance(), intervening_span()), dim = 1)
 
             pooled_embedding = self.local_pooler(embeddings)
 
             return pooled_embedding
 
         embeddings = [workhorse(el) for el in cluster_pairs]
-        embeddings = torch.cat(embeddings)
+        embeddings = torch.stack(embeddings)
 
         return embeddings
 
@@ -537,19 +533,19 @@ class RelationClassifier(BaseRelationClassifier):
         def workhorse(cluster_pair):
             head_embedding = cluster2embedding[cluster_pair.head]
             tail_embedding = cluster2embedding[cluster_pair.tail]
-            return torch.cat((head_embedding, tail_embedding))
+            return torch.cat((head_embedding, tail_embedding), dim = 0)
             
-        embeddings = [workhorse(el for el in cluster_pairs)]
+        embeddings = [workhorse(el) for el in cluster_pairs]
         return torch.stack(embeddings)
 
-    def filter_logits(self, cluster_pairs, logits):
+    # def filter_logits(self, cluster_pairs, logits):
         
-        types = [el.type for el in cluster_pairs]
-        type_indices = cluster_pairs
+    #     types = [el.type for el in cluster_pairs]
+    #     type_indices = cluster_pairs
 
-        return 
+    #     return 
     
-    def forward(self, cluster_pairs, token_embeddings, entity_type_converter):
+    def forward(self, cluster_pairs, token_embeddings):
         cluster_pairs = list(cluster_pairs)
 
         spans = self.get_spans_from_cluster_pairs(cluster_pairs)
@@ -557,7 +553,7 @@ class RelationClassifier(BaseRelationClassifier):
 
         # individual span embeddings
         span_embeddings = self.span_embedder(spans, token_embeddings)
-        intervening_span_embeddings = self.intervening_span_embedder(intervening_spans, intervening_span_embeddings)
+        intervening_span_embeddings = self.intervening_span_embedder(intervening_spans, token_embeddings)
 
         span2embedding = dict(zip(spans, span_embeddings))
         intervening_span2embedding = dict(zip(intervening_spans, intervening_span_embeddings))
@@ -567,10 +563,9 @@ class RelationClassifier(BaseRelationClassifier):
         
         cluster_embeddings = self.embed_clusters(clusters, span2embedding)
 
-        types = [entity_type_converter.class2index(el.type) for el in clusters]
-        type_embeddings = self.type_embedder(types)
+        type_embeddings = self.type_embedder(clusters)
 
-        cluster_embeddings = torch.cat((cluster_embeddings, type_embeddings))
+        cluster_embeddings = torch.cat((cluster_embeddings, type_embeddings), dim = 1)
 
         cluster2embedding = dict(zip(clusters, cluster_embeddings))
 
@@ -581,14 +576,18 @@ class RelationClassifier(BaseRelationClassifier):
         local_cluster_pair_embeddings = self.local_cluster_pair_embeddings(cluster_pairs, intervening_span2embedding)
 
         # combine global + local
-        cluster_pair_embeddings = torch.cat((global_cluster_pair_embeddings, local_cluster_pair_embeddings))
+        cluster_pair_embeddings = torch.cat((global_cluster_pair_embeddings, local_cluster_pair_embeddings), dim = 1)
+
+        cluster_pair_embeddings = self.cluster_pair_embedder(cluster_pair_embeddings)
 
         logits = self.prediction_layer(cluster_pair_embeddings)
 
         return logits
 
-    def get_gold_labels(self, cluster_pairs):
-        return [el.type for el in cluster_pairs]
+    def get_gold_labels(self, cluster_pairs, relation_type_converter):
+        labels = [relation_type_converter.class2index(el.type) for el in cluster_pairs]
+        labels = torch.tensor(labels, device = self._device())
+        return labels
 
     def _unilabel_predict(self, cluster_pairs, logits, relation_type_converter):
         type_indices = torch.argmax(logits, dim = 1)
@@ -618,5 +617,5 @@ class RelationClassifier(BaseRelationClassifier):
             return self._multilabel_predict(cluster_pairs, logits, relation_type_converter)
 
     def filter_nonrelations(self, cluster_pairs):
-        return [el for el in cluster_pairs if el.type]
+        return set(el for el in cluster_pairs if el.type)
 

@@ -1,0 +1,12 @@
+vector_embedder_config: &vector_embedder_config
+  class: MLP1
+  config:
+    outpout_dim: 128
+
+model:
+  ner:
+    <<: *vector_embedder_config
+    # class: MLP1
+    # config:
+    #   outpout_dim: 128
+ 

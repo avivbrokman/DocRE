@@ -1,10 +1,14 @@
 #%% libraries
+import os
+import torch
 from dataclasses import dataclass, replace
 from Levenshtein import distance
 from typing import Optional
 from itertools import combinations, product
 
 from utils import make_dir, unlist, parentless_print
+
+
 
 #%% Token
 @parentless_print
@@ -38,7 +42,11 @@ class Token:
         return previous_length
 
     
-    def _get_subword_indices(self):  
+    def _get_subword_indices(self):
+        # start = sum(len(el.subword_tokens) for el in self.parent_sentence.tokens[:index]) - 1
+        # if self.index == 0:
+        #     start = 0
+        # else:           
         start = self._previous_subword_length()
         end = start + len(self) 
         self.subword_indices = (start, end)
@@ -48,11 +56,10 @@ class Token:
         self._get_subword_indices()
 #%% Span
 @parentless_print
-@dataclass
+@dataclass#(frozen = True)
 class Span:
     tokens: list[Token]
     type: Optional[str] = None
-    parent_sentence: ... = None
 
     typed_eval: bool = True
     location_or_string_eval: str = 'location'
@@ -84,20 +91,24 @@ class Span:
 
     def __len__(self):
         return len(range(*self.indices))
+
+    # def word_length(self):
+    #     return len(range(*self.indices))
     
-    def __bool__(self):
-        return bool(self.indices)
-
-    def eval_copy(self, typed_eval, location_or_string_eval):
+    # def subword_length(self):
+    #     return len(range(*self.subword_indices))
+    
+    # def string_length(self):
+    #     return len(self.string)
+    
+    def length(self, length_type):
+        if length_type == 'word':
+            return len(range(*self.indices))
+        elif length_type == 'subword':
+            return len(range(*self.subword_indices))
+        elif length_type == 'string':
+            return len(range(*self.string))
         
-        eval_copy = Span(None, self.type, None, typed_eval, location_or_string_eval)
-        eval_copy.string = self.string
-        eval_copy.indices = self.indices
-
-        return eval_copy
-
-        
-
     def _get_in_sentence_indices(self):
         self.in_sentence_indices = (self.tokens[0].in_sentence_index, self.tokens[-1].in_sentence_index + 1)
 
@@ -118,57 +129,38 @@ class Span:
 
     def token_distance(self, other):
         first_token = min(self.indices[0], other.indices[0])
-        last_token = max(self.indices[1], other.indices[1])
+        last_token = min(self.indices[1], other.indices[1])
         all_tokens = set(range(first_token, last_token))
-        span1 = set(range(*self.indices))
-        span2 = set(range(*other.indices))
-        both_spans = span1 | span2
-        intervening = all_tokens - both_spans
-        return len(intervening)
+        span1 = set(*self.indices)
+        span2 = set(*other.indices)
+        overlap = span1 & span2
+        return len(all_tokens - overlap)
 
     def sentence_distance(self, other):
         return abs(other.parent_sentence.index - self.parent_sentence.index)
 
     def intervening_span(self, other):
         first_token = min(self.indices[0], other.indices[0])
-        last_token = max(self.indices[1], other.indices[1])
+        last_token = min(self.indices[1], other.indices[1])
         all_tokens = set(range(first_token, last_token))
-        span1 = set(range(*self.indices))
-        span2 = set(range(*other.indices))
+        span1 = set(*self.indices)
+        span2 = set(*other.indices)
         both_spans = span1 | span2
         intervening = all_tokens - both_spans
-        if intervening:
-            intervening_span = (min(intervening), max(intervening) + 1)
-            intervening_span = Span.from_indices(intervening_span, self.parent_sentence.parent_example)
-            intervening_span._get_subword_indices()
-            return intervening_span
-        else:
-            stub = Span.stub()
-            stub.indices = None #(100000, 100000 + 1)
-            stub.subword_indices = None #(100000, 100000 + 1)
-            return stub 
+        intervening_span = (min(intervening), max(intervening))
+        return Span.from_indices(intervening_span)  
 
     @classmethod
     def from_in_sentence_indices(cls, indices, sentence):
         if indices[0] >= 0 and indices[1] <= len(sentence):
             tokens = sentence.tokens[indices[0]:indices[1]]
-            span = Span(tokens)
-            span.process()
-            return span
+            return Span(tokens)
     
     @classmethod
     def from_indices(cls, indices, example):
         if indices[0] >= 0 and indices[1] <= len(example):
             tokens = example.tokens[indices[0]:indices[1]]
-            span = Span(tokens)
-            span.in_sentence_indices = None
-            span.indices = indices
-            span._get_string()
-            try:
-                span._get_subword_indices()
-            except:
-                pass
-            return span
+            return Span(tokens)
 
 
     def subspans(self):
@@ -181,7 +173,7 @@ class Span:
             left_subspan = self.from_in_sentence_indices(left_subspan_indices, self.parent_sentence)
             right_subspan = self.from_in_sentence_indices(right_subspan_indices, self.parent_sentence)
 
-            return {left_subspan, right_subspan}
+            return set(left_subspan, right_subspan)
 
     def superspans(self):
         superspans = set()
@@ -190,10 +182,10 @@ class Span:
         right_superspan_indices = (self.in_sentence_indices[0], self.in_sentence_indices[1] + 1)
 
         if left_superspan_indices[0] >= 0:
-            left_superspan = Span.from_in_sentence_indices(left_superspan_indices, self.parent_sentence)
+            left_superspan = Span(left_superspan_indices)
             superspans.add(left_superspan)
         if right_superspan_indices[1] <= len(self.parent_sentence):
-            right_superspan = Span.from_in_sentence_indices(right_superspan_indices, self.parent_sentence)
+            right_superspan = Span(right_superspan_indices)
             superspans.add(right_superspan)
 
         return superspans
@@ -206,7 +198,7 @@ class Span:
         self._get_indices()
         self._get_parent_sentence()
         self._get_string()
-        # self._get_subword_indices()
+        self._get_subword_indices()
 
     @classmethod
     def stub(cls):
@@ -225,15 +217,12 @@ class Sentence:
     
     def __getitem__(self, idx):
         return self.tokens[idx]
-    
-    # def candidate_spans(self, max_length):
-    def candidate_spans(self):
+
+    def candidate_spans(self, max_length):
         spans = set()
         for el1, el2 in combinations(self.tokens, 2):
-            span = Span.from_indices((el1.index, el2.index), self.parent_example)
-            span.process()
-            span._get_subword_indices()
-            if len(span) <= self.parent_example.parent_dataset.max_length:
+            span = Span((el1.index, el2.index))
+            if len(span) <= max_length:
                 spans.add(span)
 
         return spans
@@ -249,8 +238,8 @@ class Sentence:
 class SpanPair:
     span1: Span
     span2: Span
-    parent_example: ... = None
-    coref: int = None
+    parent_example: ...
+    coref: Optional[int]
 
     def __hash__(self):
         hash_list = [self.span1.indices, self.span2.indices, self.coref]
@@ -266,10 +255,10 @@ class SpanPair:
         self.type = self.span1.type
 
     def levenshtein_distance(self):
-        return self.span1.levenshtein_distance(self.span2)
+        return self.span1.lenvenshtein_distance(self.span2)
 
-    def length_difference(self):
-        return abs(len(self.span1.string) - len(self.span2.string))
+    def length_difference(self, length_type):
+        return abs(self.span1.length(length_type) - self.span2.length(length_type))
 
     def token_distance(self):
         return self.span1.token_distance(self.span2)
@@ -280,12 +269,6 @@ class SpanPair:
     def intervening_span(self):
         return self.span1.intervening_span(self.span2)
     
-    def eval_copy(self, typed_eval, location_or_string_eval):
-        span1_copy = self.span1.eval_copy(typed_eval, location_or_string_eval)
-        span2_copy = self.span2.eval_copy(typed_eval, location_or_string_eval)
-        eval_copy = SpanPair(span1_copy, span2_copy, None, self.coref)
-        return eval_copy
-
     # def does_overlap(self, other):
     #     self_strings = {self.span1.string, self.span2.string}
     #     other_strings = {other.span1.string, other.span2.string}
@@ -301,8 +284,11 @@ class SpanPair:
 
     @classmethod
     def stub(cls):
-        return SpanPair(None, None)
-    
+        return SpanPair(None, None, None)
+
+        
+        
+
 
 #%% ClassConverter
 @parentless_print
@@ -368,22 +354,17 @@ class Cluster:
         return len(self.spans)
 
     def pos_span_pairs(self):
-       return [SpanPair(el1, el2, self.parent_example, 1) for el1, el2 in combinations(self.spans, 2)]
+       return [SpanPair(el1, el2) for el1, el2 in combinations(self.spans, 2)]
 
     def neg_span_pairs_cluster(self, other):
-        return [SpanPair(el1, el2, self.parent_example, 0) for el1, el2 in product(self.spans, other.spans)]
+        return [SpanPair(el1, el2) for el1, el2 in product(self.spans, other.spans)]
 
     def neg_span_pairs(self, others):
         return unlist([self.neg_span_pairs_cluster(el) for el in others])
 
     def process(self):
         # self.class_index = self.class_converter.class2index[self.type]
-        self.class_index = self.parent_example.parent_dataset.entity_class_converter.class2index(self.type)
-
-    def eval_copy(self, typed_eval, location_or_string_eval):
-        eval_copy = Cluster({el.eval_copy(typed_eval, location_or_string_eval) for el in self.spans}, None, self.type, self.class_converter, typed_eval, location_or_string_eval)
-
-        return eval_copy
+        self.class_index = self.parent_example.parent_dataset.entity_type_converter.class2index[self.type]
 
     @classmethod
     def stub(cls):
@@ -391,6 +372,7 @@ class Cluster:
     
     def populate(self, spans, parent_example, type, class_converter):
         self = replace(self, spans = spans, parent_example = parent_example, type = type, class_converter = class_converter)
+
 
 #%% ClusterPair
 @parentless_print
@@ -411,7 +393,7 @@ class ClusterPair:
             hash_list.append(self.type)
         hash_tuple = tuple(hash_list)
         
-        return hash(hash_tuple)
+        return hash_tuple
 
     def __eq__(self, other):
         if self.typed_eval:
@@ -431,7 +413,7 @@ class ClusterPair:
 
     def _relation_type_mutations(self):
         
-        relation_types = self.parent_example.parent_dataset.relation_class_converter.class2index_dict.keys()
+        relation_types = self.parent_example.relation_class_converter.class2ix.keys()
         mutated_relations_with_cluster_pair = set(ClusterPair(self.head, self.tail, el) for i, el in enumerate(relation_types) if i < 10)
         negative_relations_with_cluster_pair = self._filter_positive_relations(mutated_relations_with_cluster_pair)
         return negative_relations_with_cluster_pair
@@ -444,8 +426,8 @@ class ClusterPair:
 
     def _cluster_mutations(self):
         clusters = self.parent_example.clusters - set([self.head, self.tail])
-        head_mutations = set(self._mutate_cluster_pair(el, 'head') for el in clusters if el.type == self.head.type)
-        tail_mutations = set(self._mutate_cluster_pair(el, 'tail') for el in clusters if el.type == self.tail.type)
+        head_mutations = set(self._mutate_cluster_pair(el, 'head') for el in clusters if self.el.type == self.head.type)
+        tail_mutations = set(self._mutate_cluster_pair(el, 'tail') for el in clusters if self.el.type == self.tail.type)
 
         mutations = head_mutations | tail_mutations
 
@@ -464,13 +446,6 @@ class ClusterPair:
     def enumerate_span_pairs(self):
         return [SpanPair(el1, el2) for el1, el2 in product(self.head.spans, self.tail.spans)]
     
-    def eval_copy(self, typed_eval, location_or_string_eval):
-        head = self.head.eval_copy(typed_eval, location_or_string_eval)
-        tail = self.tail.eval_copy(typed_eval, location_or_string_eval)
-        eval_copy = ClusterPair(head, tail, None, self.type, typed_eval, location_or_string_eval)
-
-        return eval_copy
-
     @classmethod
     def stub(cls):
         return ClusterPair(None, None, None)
@@ -507,19 +482,19 @@ class Example:
         self.candidate_spans = set()
         self.candidate_spans.update(self.mentions)
         for el in self.sentences:
-            self.candidate_spans.update(el.candidate_spans())
+            self.candidate_spans.add(el.candidate_spans())
 
     def _get_positive_span_pairs(self):
-        self.positive_span_pairs = unlist([el.pos_span_pairs() for el in self.clusters])
+        self.positive_span_pairs = unlist([el.pos_span_pairs() for el in self.clusters()])
         
     def _get_negative_span_pairs(self):
-        self.negative_span_pairs = unlist([el.neg_span_pairs(self.clusters - set([el])) for el in self.clusters])
+        self.negative_span_pairs = unlist([el.neg_span_pairs() for el in self.clusters()])
 
     def _get_negative_cluster_pairs(self):
         self.negative_cluster_pairs = unlist([el.negative_cluster_pairs() for el in self.positive_cluster_pairs])
 
     def _get_candidate_cluster_pairs(self):
-        self.candidate_cluster_pairs = [ClusterPair(el1, el2, self) for el1, el2 in combinations(self.clusters, 2)]
+        self.candidate_cluster_pairs = [ClusterPair(el1, el2) for el1, el2 in combinations(self.clusters, 2)]
 
     def __len__(self):
         return len(self.tokens)
@@ -554,6 +529,11 @@ class Example:
 
         self.process()
 
+        
+
+    
+   
+
 #%% Dataset 
 @parentless_print
 @dataclass
@@ -561,12 +541,8 @@ class Dataset:
 
     examples: list[Example]
     tokenizer: ...
-    max_length: int
     entity_types: Optional[list[str]]
     relation_types: Optional[list[str]]
-
-    def __len__(self):
-        return len(self.examples)
 
     def _get_type_converter(self, types):
         types.append(None)
@@ -576,42 +552,18 @@ class Dataset:
         # (a) entity types don't exist
         # (b) entity types
         if self.entity_types:
-            self.entity_class_converter = self._get_type_converter(self.entity_types)
+            self.entity_type_converter = self._get_type_converter(self.entity_types)
         if self.relation_types:
-            self.relation_class_converter = self._get_type_converter(self.relation_types)
-
+            self.relation_type_converter = self._get_type_converter(self.relation_types)
 
     def __getitem__(self, idx):
     
         return self.examples[idx]
 
     @classmethod
-    def stub(cls, tokenizer, max_length, entity_types, relation_types):
-        return Dataset(list(), tokenizer, max_length, entity_types, relation_types)
+    def stub(cls, tokenizer, entity_types, relation_types):
+        return Dataset(list(), tokenizer, entity_types, relation_types)
     
     def populate(self, examples):
         self.examples = examples
         self.process()
-
-    def _get_subword_indices(self, object_):
-    
-        if isinstance(object_, list) or isinstance(object_, set):
-            for el in object_:
-                self._get_subword_indices(el)
-            # map(self._get_subword_indices, object_)
-        if isinstance(object_, Dataset):
-            self._get_subword_indices(object_.examples)
-        if isinstance(object_, Example):
-            self._get_subword_indices(object_.sentences)
-
-            self._get_subword_indices(object_.mentions)
-            self._get_subword_indices(object_.negative_spans)
-            self._get_subword_indices(object_.candidate_spans)
-
-        if isinstance(object_, Sentence):
-            self._get_subword_indices(object_.tokens)
-        if isinstance(object_, Token):
-            object_._get_subword_indices()
-        if isinstance(object_, Span):
-            # if not hasattr(object_, 'subword_indices'):
-            object_._get_subword_indices()

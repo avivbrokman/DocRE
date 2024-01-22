@@ -9,8 +9,8 @@ from lightning_data_module import ELREDataModule
 #%% imports for CLI
 from torch.nn import Embedding
 
-from parameter_modules import MLP2, Identity, MLP2Pooler, max_pool, Gate
-from modeling_classes import NER, Coreference, RelationClassifier
+# from parameter_modules import MLP2, Identity, MLP2Pooler, max_pool, Gate
+# from modeling_classes import NER, Coreference, RelationClassifier
 
 
 #%% CLI
@@ -49,7 +49,8 @@ class ELRECLI(LightningCLI):
 #%% run
 if __name__ == "__main__":
     # main(config)
-    cli = ELRECLI(ELRELightningModule, ELREDataModule)
+    # cli = ELRECLI(ELRELightningModule, ELREDataModule)
+    cli = LightningCLI(ELRELightningModule, ELREDataModule)
 
 
 '''

@@ -28,11 +28,11 @@ class DocREDWord:
         self._get_index()
 
     def return_Token(self):
-        print('returning Token')
+        # print('returning Token')
         if not self.Token:
-            print('get parent sentence')
+            # print('get parent sentence')
             parent_Sentence = self.parent_sentence.Sentence
-            print('instantiating Token')
+            # print('instantiating Token')
             self.Token = Token(self.annotation, self.in_sentence_index, self.index, parent_Sentence)
             return self.Token
         
@@ -58,16 +58,18 @@ class DocREDSentence:
         self._get_words()
 
     def return_Sentence(self):
-        print('returning sentence')
+        # print('returning sentence')
         if not self.Sentence:
-            print('make stub')
+            # print('make stub')
             self.Sentence = Sentence.stub()
-            print('get parent')
-            self.Sentence.parent_example = self.parent_example.Example            
-            print('make Tokens')
-            self.Sentence.tokens = [el.return_Token() for el in self.words]
-            print('get index')
+            # print('get parent')
+            self.Sentence.parent_example = self.parent_example.Example
+
+            # print('get index')
             self.Sentence.index = self.index
+            
+            # print('make Tokens')
+            self.Sentence.tokens = [el.return_Token() for el in self.words]
 
             # self.Sentence =  Sentence(tokens, self.index, parent_Example)
             return self.Sentence
@@ -86,7 +88,7 @@ class DocREDMention:
         self.string = self.annotation['name']
 
     def _get_in_sentence_word_span(self):
-        self.in_sentence_word_span = (self.annotation['pos'][0], self.annotation['pos'][1] - 1)
+        self.in_sentence_word_span = tuple(self.annotation['pos'])
 
     def _get_sentence_index(self):
         self.sentence_index = self.annotation['sent_id']
@@ -115,9 +117,11 @@ class DocREDMention:
             parent_example = self.parent_entity.parent_example.Example
             sentence = parent_example.sentences[self.sentence_index]
             self.Span.tokens = sentence.tokens[self.in_sentence_word_span[0]:self.in_sentence_word_span[1]]
+            
             self.Span.type = self.type
             # self.Span = Span(tokens, self.type)
             self.Span.process()
+            self.Span._get_subword_indices()
             return self.Span
 
 #%% DocREDEntity
@@ -169,7 +173,7 @@ class DocREDEntity:
 
             # self.Cluster = stub.populate(spans, parent_Example, self.type)
             self.Cluster.process()
-            return self.Cluster
+        return self.Cluster
 
 #%% DocREDRelation
 @parentless_print
@@ -184,6 +188,7 @@ class DocREDRelation:
     ClusterPair: ClusterPair = None
     
     def _get_entities(self):
+        # print('entities: ', self.parent_example.entities)
         self.head = self.parent_example.entities[self.head_index]
         self.tail = self.parent_example.entities[self.tail_index]
 
@@ -198,9 +203,13 @@ class DocREDRelation:
             # self.ClusterPair.type = self.type
             # self.ClusterPair.parent_example = self.parent_example.Example
 
+            # print('head: ', self.head.Cluster)
+
             head = self.head.return_Cluster()
             tail = self.tail.return_Cluster()
             parent_Example = self.parent_example.Example
+
+            # print('head: ', head)
 
             self.ClusterPair = ClusterPair(head, tail, parent_Example, self.type)
         return self.ClusterPair
@@ -229,6 +238,9 @@ class DocREDExample:
     relation_labels
     '''
 
+    def _get_title(self):
+        self.title = self.annotation['title']
+
     def _get_sentences(self):
         raw_sentences = self.annotation['sents']
         self.sentences = list()
@@ -247,7 +259,66 @@ class DocREDExample:
         
         self.relations = [DocREDRelation(el[0], el[1], el[2], self) for el in triples]
 
+    def remove_invalid_tokens(self, invalid_tokens = ['\xa0', ' \xa0', ' ']):
+
+        def invalid_in_sentence_indices(sentence):
+            temp = [i for i, el in enumerate(sentence) if el in invalid_tokens]
+            temp.sort(reverse = True) # temp
+            # return [i for i, el in enumerate(sentence) if el in invalid_tokens]
+            return temp #temp
+        
+            
+        def remove_invalid_tokens(sentences):
+            def workhorse(sentence):
+                return [el for el in sentence if el not in invalid_tokens]
+            
+            new = [workhorse(el) for el in sentences] # temp
+            return new # temp
+            # return [workhorse(el) for el in sentences]
+        
+        def adjust_span_indices(token_index, sentence_index):
+            for el_entity in self.annotation['vertexSet']:
+                for el_span in el_entity:
+                    if el_span['sent_id'] == sentence_index:
+                        if el_span['pos'][0] > token_index:
+                            el_span['pos'][0] -= 1
+                        if el_span['pos'][1] > token_index:
+                            el_span['pos'][1] -= 1
+                        if el_span['pos'][0] == el_span['pos'][1]:
+                            raise ValueError('Span has length 0')
+                        
+        def adjust_span_strings(entities):
+            def entity_apply(entity):
+                for el in entity:
+                    mention_workhorse(el)
+            
+            def mention_workhorse(mention):
+                mention['name'] = mention['name'].replace('\xa0', '').replace('  ', ' ').strip()
+                
+            for el in entities:
+                entity_apply(el)
+                
+            
+                
+        invalid_indices = [invalid_in_sentence_indices(el) for el in self.annotation['sents']]
+        
+        self.annotation['sents'] = remove_invalid_tokens(self.annotation['sents'])
+        
+        for i_sent, el_invalid_indices in enumerate(invalid_indices):
+            for el_index in el_invalid_indices:
+                adjust_span_indices(el_index, i_sent)
+                
+        adjust_span_strings(self.annotation['vertexSet'])
+
+    def _clean(self):
+        self.remove_invalid_tokens()
+        
+
     def __post_init__(self):
+        if self.annotation['title'] == 'El Escorial, Madrid': #temp
+            pass
+        self._clean()
+        self._get_title()
         self._get_sentences()
         self._get_words()
         self._get_entities()
@@ -271,9 +342,17 @@ class DocREDExample:
             # print('fields: ', fields(self.sentences[0]))
             self.Example.parent_dataset = self.parent_dataset.Dataset
             self.Example.sentences = [el.return_Sentence() for el in self.sentences]
-            self.Example.clusters = [el.return_Cluster() for el in self.entities]
-            self.Example.positive_cluster_pairs = [el.return_ClusterPair() for el in self.relations]            
+            self.Example.clusters = set(el.return_Cluster() for el in self.entities)
+            self.Example.positive_cluster_pairs = set(el.return_ClusterPair() for el in self.relations)  
             
+
+
+            # print('entities: ', self.entities, '/n')
+            # print('cluster1: ', self.entities[0].Cluster, '/n')
+            # print('cluster1: ', self.Example.clusters, '/n')
+            
+            # print('cluster pair: ', self.Example.positive_cluster_pairs.pop())
+            # print('cluster pairs: ', self.Example.positive_cluster_pairs.pop())
 
             # self.Example = stub.populate(sentences, clusters, positive_cluster_pairs, parent_Dataset)
             self.Example.process()
@@ -285,7 +364,7 @@ class DocREDExample:
 class DocREDDataset:
     
     huggingface_dataset: ...
-    # relation_type_converter: Optional[dict] = field(default = None)
+    # relation_class_converter: Optional[dict] = field(default = None)
     # counts_save_filename: Optional[dict] = field(default = 'data/processed/DocRED/relation_type_counts.json')
     Dataset: Dataset = None
                 
@@ -299,8 +378,7 @@ class DocREDDataset:
                 counts.update([el_ent.type])
         counts = counts.most_common()
         types = list(zip(*counts))[0]
-        
-        return types
+        return list(types)
         
     def get_relation_types(self):
         counts = Counter()
@@ -310,9 +388,9 @@ class DocREDDataset:
         counts = counts.most_common()
         types = list(zip(*counts))[0]
         
-        return types 
 
-    # def _get_relation_type_converter(self):
+        return list(types) 
+    # def _get_relation_class_converter(self):
     #     relations = unlist([el.relations for el in self.examples])
     #     types = [el.type for el in relations]
     #     counts = Counter(types)
@@ -321,12 +399,12 @@ class DocREDDataset:
     #     counts = counts.most_common()
     #     relation_types_by_frequency = list(zip(*counts))[0]
 
-    #     self.relation_type_converter = dict(zip(relation_types_by_frequency, range(len(relation_types_by_frequency))))
+    #     self.relation_class_converter = dict(zip(relation_types_by_frequency, range(len(relation_types_by_frequency))))
     
     # def _convert_relation_types(self):
     #     relations = unlist([el.relations for el in self.examples])
     #     for el in relations:
-    #         el.type_index = self.relation_type_converter[el.type]
+    #         el.type_index = self.relation_class_converter[el.type]
 
     # def analyze_relations(self):
     #     relations = unlist([el.relations for el in self.examples])
@@ -334,8 +412,8 @@ class DocREDDataset:
 
     def __post_init__(self):
         self._get_examples()
-        # if not self.relation_type_converter:
-        #     self._get_relation_type_converter()
+        # if not self.relation_class_converter:
+        #     self._get_relation_class_converter()
         # self._convert_relation_types()
 
     # def return_Dataset(self, tokenizer, entity_types, relation_types):
@@ -343,15 +421,24 @@ class DocREDDataset:
     #         examples = [el.return_Example() for el in self.examples]        
     #         self.Dataset = Dataset(examples, tokenizer, entity_types, relation_types)
     #         return self.Dataset
-        
-    def return_Dataset(self, tokenizer, entity_types, relation_types):
+
+    def filter_by_title(self, title):
+        self.examples = [el for el in self.examples if el.title != title]
+
+    def return_Dataset(self, tokenizer, max_length, entity_types, relation_types):
         if not self.Dataset:
-            self.Dataset = Dataset.stub(tokenizer, entity_types, relation_types)
+            self.Dataset = Dataset.stub(tokenizer, max_length, entity_types, relation_types)
+            self.Dataset.process()
+
             self.Dataset.examples = [el.return_Example() for el in self.examples]
+
+            self.Dataset._get_subword_indices(self.Dataset)
+
+
+            
             # stubs = [Example.stub(tokenizer, entity_types, relation_types)] * len(self.examples)
             # examples = [el_ex.populate(el_stub) for el_stub, el_ex in zip(stubs, self.examples)]
             # self.Dataset = stub.populate(examples)
-            self.Dataset.process()
             return self.Dataset
     # def return_Dataset(self, tokenizer, entity_types, relation_types):
     #     examples = [el.return_Example() for el in self.examples]        
@@ -361,9 +448,10 @@ class DocREDDataset:
 #%% processing
 # tokenizer
 checkpoint = 'bert-base-uncased'
+max_length = 10
             
 # make data paths and directories
-output_data_path = path.join('data', 'processed', checkpoint, 'DocRED')
+output_data_path = path.join('data', 'processed', 'DocRED', checkpoint)
 
 make_dir(output_data_path)
 
@@ -385,14 +473,19 @@ relation_types = full_data.get_relation_types()
 
 
 # processes all datasets
-print('train')
+print('parsing train dataset')
 train_data = DocREDDataset(train_data)
-print('valid')
+print('parsing validation dataset')
 valid_data = DocREDDataset(valid_data)
-print('test')
+print('parsing test dataset')
 test_data = DocREDDataset(test_data)
-print('train + valid')
-train_valid_data = DocREDDataset(train_valid_data)
+# print('parsing train + validation dataset')
+# train_valid_data = DocREDDataset(train_valid_data)
+
+# filtering poorly annotated examples
+# train_data.filter_by_title('The Secret of the Nagas')
+# valid_data.filter_by_title('Paul Morphy')
+
 
 #%% More processing
 # relation_combinations_train = train_data.analyze_relations()
@@ -407,23 +500,27 @@ train_valid_data = DocREDDataset(train_valid_data)
 tokenizer = AutoTokenizer.from_pretrained(checkpoint)
 
 # converts processed datasets into modeling datasets
-train_data = train_data.return_Dataset(tokenizer, entity_types, relation_types)
-valid_data = valid_data.return_Dataset(tokenizer, entity_types, relation_types)
-test_data = test_data.return_Dataset(tokenizer, entity_types, relation_types)
-train_valid_data = train_valid_data.return_Dataset(tokenizer, entity_types, relation_types)
+print('making train modeling dataset')
+train_data = train_data.return_Dataset(tokenizer, max_length, entity_types, relation_types)
+print('making validation modeling dataset')
+valid_data = valid_data.return_Dataset(tokenizer, max_length, entity_types, relation_types)
+print('making test modeling dataset')
+test_data = test_data.return_Dataset(tokenizer, max_length, entity_types, relation_types)
+# print('making train + validation modeling dataset')
+# train_valid_data = train_valid_data.return_Dataset(tokenizer, max_length, entity_types, relation_types)
 
 
-entity_type_converter = train_data.entity_type_converter
-relation_type_converter = train_data.relation_type_converter
+entity_class_converter = train_data.entity_class_converter
+relation_class_converter = train_data.relation_class_converter
 
 # Saves everything
 torch.save(entity_types, path.join(output_data_path,'entity_types.save'))
 torch.save(relation_types, path.join(output_data_path,'relation_types.save'))
-torch.save(entity_type_converter, path.join(output_data_path,'entity_type_converter.save'))
-torch.save(relation_type_converter, path.join(output_data_path,'relation_type_converter.save'))
+torch.save(entity_class_converter, path.join(output_data_path,'entity_class_converter.save'))
+torch.save(relation_class_converter, path.join(output_data_path,'relation_class_converter.save'))
 
 torch.save(train_data, path.join(output_data_path,'train_data.save'))    
-torch.save(valid_data, path.join(output_data_path,'valid_data.save'))    
+torch.save(valid_data, path.join(output_data_path,'validation_data.save'))    
 torch.save(test_data, path.join(output_data_path,'test_data.save'))   
-torch.save(train_valid_data, path.join(output_data_path,'train_valid_data.save'))   
+# torch.save(train_valid_data, path.join(output_data_path,'train_validation_data.save'))   
 

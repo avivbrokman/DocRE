@@ -1,0 +1,25 @@
+# model:
+#   in_features: 5
+#   out_features: 5
+
+# model:
+#   my_model:
+#     class: Linear
+#     config: 
+#       in_features: 5
+#       out_features: 5
+
+model:
+  my_model:
+    class: Nested1
+    config:
+      component1:
+        class: Linear
+        config:
+          in_features: 5
+          out_features: 5
+      component2:
+        class: Linear
+        config:
+          in_features: 5
+          out_features: 5

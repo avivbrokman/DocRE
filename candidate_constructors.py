@@ -2,7 +2,7 @@
 from collections import defaultdict
 from itertools import combinations, product
 
-from data_classes import SpanPair, ClusterPair
+from data_classes_original import SpanPair, ClusterPair
 
 #%% useful functions
 def get_objects_by_type(objects):

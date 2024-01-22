@@ -30,11 +30,15 @@ class Calculator:
             return 2 * TP / (2 * TP + FP + FN)
 
     def compute(self):
-        results = defaultdict(lambda: dict)
-        for class_, counts_dict in self.counts:
-            results[class_]['precision'] = self.compute_precision(counts_dict['TP'], counts_dict['FP'])
-            results[class_]['recall'] = self.compute_precision(counts_dict['TP'], counts_dict['FN'])
-            results[class_]['F1'] = self.compute_precision(counts_dict['TP'], counts_dict['FP'], counts_dict['FN'])
+        results = defaultdict(lambda: dict())
+        for class_, counts_dict in self.counts.items():
+            precision = self.compute_precision(counts_dict['TP'], counts_dict['FP'])
+            results[class_]['precision'] = precision
+            results[class_]['recall'] = self.compute_recall(counts_dict['TP'], counts_dict['FN'])
+            results[class_]['F1'] = self.compute_F1(counts_dict['TP'], counts_dict['FP'], counts_dict['FN'])
         
         return results
+    
+    def reset(self):
+        self.__init__()
 

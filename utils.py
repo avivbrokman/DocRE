@@ -26,10 +26,22 @@ def uniquify(path):
     return path
 
 
-def unlist(nested_list):
-    unlisted = [subel for el in nested_list for subel in el]
-    return unlisted
+# def unlist(nested_list):
+#     unlisted = [subel for el in nested_list for subel in el]
+#     return unlisted
 
+def unlist(nested_list):
+    result = []
+
+    for el in nested_list:
+        if isinstance(el, list):
+            # If the element is a list, extend the result by the flattened element
+            result.extend(unlist(el))
+        else:
+            # If the element is not a list, add it directly to the result
+            result.append(el)
+    
+    return result
 
 
 def make_dir(dir_path):
@@ -64,7 +76,15 @@ def generalized_replace(instance, **changes):
     elif isinstance(instance, list):
         return [replace(el, **changes) for el in instance if is_dataclass(el)]
     elif isinstance(instance, set):
-        return {replace(el, **changes) for el in instance if is_dataclass(el)}
+        out = list()
+        for el in instance:
+            if is_dataclass(el):
+                r = replace(el, **changes)
+                out.append(r)
+
+        out = set(out)
+        return out
+        # return {replace(el, **changes) for el in instance if is_dataclass(el)}
 
 # decorator
 # def parentless_print(cls):
@@ -118,10 +138,24 @@ def parentless_print(cls):
         for field in fields(self):
             value = getattr(self, field.name)
             if field.name.startswith('parent') or field.name[0].isupper() or field.name == 'annotation':
-                field_strs.append(f"{field.name} = {'present' if value else value}")
+                # field_strs.append(f"{field.name} = {'present' if value else value}")
+                field_strs.append(f"{field.name} = {'present' if value is not None else None}")
             else:
                 field_strs.append(f"{field.name} = {value}")
         return f"{cls.__name__}({', '.join(field_strs)})"
 
+    def parentless_repr(self):
+        return self.parentless_str()
+
     cls.__str__ = parentless_str
+    cls.__repr__ = parentless_str
     return cls
+
+def apply_to_list(to_apply, items, **kwargs):
+    # If 'to_apply' is a function, apply it directly
+    if callable(to_apply):
+        return [to_apply(item, **kwargs) for item in items]
+
+    # If 'to_apply' is a string, assume it's a method name and invoke it
+    elif isinstance(to_apply, str):
+        return [getattr(item, to_apply)(**kwargs) for item in items]

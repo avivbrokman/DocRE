@@ -4,204 +4,168 @@ trainer:
   logger: True
   accelerator: gpu
   accumulate_grad_batches: 1
-  fast_dev_run: 2 #False #2 #50
-  max_epochs: 2 #30 #2
+  fast_dev_run: False #False #2 #50
+  max_epochs: 7 #30 #2
   #limit_val_batches: 0
-
-# reusable settings
-dataset_name: &dataset_name DocRED
-
-MLP2Pooler_config: &MLP2Pooler_config
-  class: MLP2Pooler
-  config:
-    intermediate_dim: 128
-    output_dim: 64
-
-ActivatedMLP2_config: &ActivatedMLP2_config
-  class: MLP2
-  config: 
-    intermediate_dim: 128
-    output_dim: 64
-    final_activation: True
-
-# NER Settings
-# span_embedder_config: &span_embedder_config
-#   class: SpanEmbedder
-#   config:
-#     token_embedder: 
-#       class: Identity
-#       config: null
-#     token_pooler: 
-#       function: max_pool
-
-span_embedder_ner_config: &span_embedder_ner_config
-  class: SpanEmbedder
-  config:
-    token_embedder: 
-      class: Identity
-      config: null
-    token_pooler: 
-      function: max_pool
-    vector_embedder:
-      class: MLP1
-      config: 
-        output_dim: 128
-
-length_embedder_ner_config: &length_embedder_ner_config
-  class: Embedding
-  config:
-    num_embeddings: 100
-    embedding_dim: 16
-
-# NER_config: &NER_config
-#   class: NER
-#   config:
-#     token_pooler: 
-#       function: max_pool
-#     span_embedder: 
-#       <<: *MLP2Pooler_config
-#     length_embedder: 
-#       <<: *length_embedder_config_ner
-#     num_entity_classes: null # to be filled in later
-
-NER_config: &NER_config
-  class: NER
-  config:
-    span_embedder:
-      <<: *span_embedder_ner_config
-    length_embedder:
-      <<: *length_embedder_ner_config
-    num_entity_classes: null # to be filled in later    
-
-
-# clusterer settings
-levenshtein_embedder_config: &levenshtein_embedder_config # pair
-  class: Embedding
-  config:
-    num_embeddings: 500
-    embedding_dim: 16
-
-
-levenshtein_gate_config: &levenshtein_gate_config # pair
-  class: Gate
-  config: null
-
-cluster_prediction_layer_config: &cluster_prediction_layer_config # final, probably delete
-  class: MLP2
-  config: 
-    intermediate_dim: 128
-    output_dim: 2
-   
-length_embedder_config_cluster: &length_embedder_config_cluster # 
-  class: Embedding
-  config:
-    num_embeddings: 100
-    embedding_dim: 32
-
-length_difference_embedder: &length_difference_embedder
-  class: Embedding
-  config:
-    num_embeddings: 100
-    embedding_dim: 32
-
-
-
-clusterer_config: &clusterer_config
-  class: Coreference
-  config: 
-    levenshtein_embedder: 
-      <<: *levenshtein_embedder_config
-    levenshtein_gate:
-      <<: *levenshtein_gate_config
-    prediction_layer:
-      <<: *cluster_prediction_layer_config
-    span_embedder:
-      <<: *span_embedder_config
-    length_embedder:
-      <<: *length_embedder_config_cluster
-    length_difference_embedder:
-      <<: *length_difference_embedder
-
-# RC config
-RC_prediction_layer_config: &RC_prediction_layer_config
-  class: MLP2
-  config: 
-    intermediate_dim: 128
-    output_dim: null # to be determined in module
-
-
-type_embedder_config: &type_embedder_config
-  class: Embedding
-  config:
-    num_embeddings: 10
-    embedding_dim: 16
-
-
-RC_config: &RC_config
-  class: RelationClassifier
-  config:
-    local_pooler: 
-      <<: *MLP2Pooler_config
-    prediction_layer:
-      <<: *RC_prediction_layer_config
-    span_embedder: 
-      <<: *span_embedder_config
-    intervening_span_embedder: 
-      <<: *MLP2Pooler_config
-    span_pooler:
-      <<: *MLP2Pooler_config
-    cluster_embedder:
-      <<: *MLP2Pooler_config
-    type_embedder: 
-      <<: *type_embedder_config
-    num_relation_classes: null # to be filled in lightning module
-    is_multilabel: True
-    rc_cutoff: 0.5
-
-
-
+  num_sanity_val_steps: 0
 
 # model config
 model:
-  dataset_name: *dataset_name
+  dataset_name: DocRED
   lm_checkpoint: bert-base-uncased
   ner:
-    <<: *NER_config
+    class: NER
+    config:
+      length_embedder:
+        class: LengthEmbedding
+        config:
+          num_embeddings: 100
+          embedding_dim: 16
+      span_embedder:
+        class: SpanEmbedder
+        config:
+          token_embedder: 
+            class: Identity
+            config: {}
+          token_pooler: 
+            function: max_pool
+          vector_embedder:
+            class: MLP1
+            config: 
+              output_dim: 128   
+      num_entity_classes: {} # to be filled in later    
   clusterer:
-    <<: *clusterer_config
+    class: Coreference
+    config: 
+      levenshtein_embedder: 
+          class: LevenshteinEmbedding
+          config:
+            num_embeddings: 500
+            embedding_dim: 16
+      levenshtein_gate:
+        class: Gate
+        config: {}
+      span_embedder:
+        class: SpanEmbedder
+        config:
+          token_embedder: 
+            class: Identity
+            config: {}
+          token_pooler: 
+            function: max_pool
+          vector_embedder:
+            class: Identity
+            config: {}
+      type_embedder:
+        class: TypeEmbedding
+        config:
+          num_embeddings: 8
+          embedding_dim: 16
+      length_embedder:
+        class: LengthEmbedding
+        config:
+          num_embeddings: 1000
+          embedding_dim: 32
+      length_difference_embedder:
+        class: LengthDiffEmbedding
+        config:
+          num_embeddings: 1000
+          embedding_dim: 32
+      num_coref_classes: 2
+      coref_cutoff: 0.5
   rc:
-    <<: *RC_config
+    class: RelationClassifier
+    config:
+      span_embedder: 
+        class: SpanEmbedder
+        config:
+          token_embedder: 
+            class: Identity
+            config: {}
+          token_pooler: 
+            function: max_pool
+          vector_embedder:
+            class: Identity
+            config: {}
+      intervening_span_embedder: 
+        class: SpanEmbedder
+        config:
+          token_embedder: 
+            class: Identity
+            config: {}
+          token_pooler: 
+            function: max_pool
+          vector_embedder:
+            class: Identity
+            config: {}
+      span_pooler:
+        class: MLP2Pooler
+        config:
+          intermediate_dim: 128
+          output_dim: 64      
+      type_embedder: 
+        class: TypeEmbedding
+        config:
+          num_embeddings: 10
+          embedding_dim: 16
+      local_pooler: 
+        class: MLP2Pooler
+        config:
+          intermediate_dim: 128
+          output_dim: 64   
+      token_distance_embedder:
+        class: TokenDistanceEmbedding
+        config:
+          num_embeddings: 2048
+          embedding_dim: 16
+      sentence_distance_embedder:
+        class: SentenceDistanceEmbedding
+        config:
+          num_embeddings: 64
+          embedding_dim: 16
+      cluster_pair_embedder: 
+        class: MLP1
+        config:
+          output_dim: 128
+      # prediction_layer:
+      #   class: MLP2
+      #   config: 
+      #     intermediate_dim: 128
+      #     output_dim: {} # to be determined in module
+      num_relation_classes: {} # to be filled in lightning module
+      is_multilabel: True
+      rc_cutoff: 0.5
   loss_coefficients: [1,1,1]
   lm_learning_rate: 5e-5
   learning_rate: 1e-3
   ner_scorer_classes:
     - TypedLocationNERScorer
-    - TypedStringNERScorer
+    # - TypedStringNERScorer
     - UntypedLocationNERScorer
-    - UntypedStringNERScorer
-  coref_scorer_classes: Null
+    # - UntypedStringNERScorer
+  coref_scorer_classes: {}
   cluster_scorer_classes: 
     - TypedLocationStrictClusterScorer
-    - TypedStringStrictClusterScorer
+    # - TypedStringStrictClusterScorer
     - UntypedLocationStrictClusterScorer
-    - UntypedStringStrictClusterScorer
+    # - UntypedStringStrictClusterScorer
     - TypedLocationRelaxedClusterScorer
-    - TypedStringRelaxedClusterScorer
+    # - TypedStringRelaxedClusterScorer
     - UntypedLocationRelaxedClusterScorer
-    - UntypedStringRelaxedClusterScorer
+    # - UntypedStringRelaxedClusterScorer
   rc_scorer_classes: 
     - TypedLocationStrictRCScorer
-    - TypedStringStrictRCScorer
+    # - TypedStringStrictRCScorer
     - UntypedLocationStrictRCScorer
-    - UntypedStringStrictRCScorer
+    # - UntypedStringStrictRCScorer
     - TypedLocationRelaxedRCScorer
-    - TypedStringRelaxedRCScorer
+    # - TypedStringRelaxedRCScorer
     - UntypedLocationRelaxedRCScorer
-    - UntypedStringRelaxedRCScorer
+    # - UntypedStringRelaxedRCScorer
   calculator_class: Calculator
 
 # data config
 data:
-  dataset_name: *dataset_name
-ckpt_path: output
-
+  dataset_name: DocRED
+  lm_checkpoint: bert-base-uncased
+ckpt_path: null

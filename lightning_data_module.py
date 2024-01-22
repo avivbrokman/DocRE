@@ -6,17 +6,18 @@ from os import path
 
 #%% Data Module
 class ELREDataModule(LightningDataModule):
-    def __init__(self, dataset_name):
+    def __init__(self, dataset_name, lm_checkpoint):
         super().__init__()
         self.dataset_name = dataset_name
+        self.lm_checkpoint = lm_checkpoint
 
-    def _get_dataset_path(self, dataset_name, split):
-        return path.join('data', dataset_name, split, '.save')
+    def _get_dataset_path(self, dataset_name, lm_checkpoint, split):
+        return path.join('data', 'processed', dataset_name, lm_checkpoint, f'{split}_data.save')
 
     def setup(self, stage = None):
-        self.train_data = torch.load(self._get_dataset_path(self.dataset_name, 'train'))
-        self.validation_data = torch.load(self._get_dataset_path(self.dataset_name, 'validation'))
-        self.test_data = torch.load(self._get_dataset_path(self.dataset_name, 'test'))
+        self.train_data = torch.load(self._get_dataset_path(self.dataset_name, self.lm_checkpoint, 'train'))
+        self.validation_data = torch.load(self._get_dataset_path(self.dataset_name, self.lm_checkpoint, 'validation'))
+        self.test_data = torch.load(self._get_dataset_path(self.dataset_name, self.lm_checkpoint, 'test'))
 
         try:
             self.entity_type_converter = self.train_data.entity_type_converter

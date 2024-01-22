@@ -1,0 +1,26 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+
+        {
+            "name": "Python: Main with Arguments",
+            "type": "python",
+            "request": "launch",
+            "program": "main.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["fit", "--config", "ELRE_config.yaml"],
+            "env": {"CUDA_LAUNCH_BLOCKING": "1"}
+        },
+        {
+            "name": "Python: Debug DocRED dataset",
+            "type": "python",
+            "request": "launch",
+            "module": "data_processing.DocRED",
+            "console": "integratedTerminal"
+        }
+    ]
+}
