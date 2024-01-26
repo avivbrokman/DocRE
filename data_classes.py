@@ -3,6 +3,7 @@ from dataclasses import dataclass, replace
 from Levenshtein import distance
 from typing import Optional
 from itertools import combinations, product
+from torch import Tensor
 
 from utils import make_dir, unlist, parentless_print
 
@@ -139,7 +140,10 @@ class Span:
         intervening = all_tokens - both_spans
         if intervening:
             intervening_span = (min(intervening), max(intervening) + 1)
-            intervening_span = Span.from_indices(intervening_span, self.parent_sentence.parent_example)
+            try:
+                intervening_span = Span.from_indices(intervening_span, self.parent_sentence.parent_example)
+            except:
+                intervening_span = Span.from_indices(intervening_span, self.parent_example)
             intervening_span._get_subword_indices()
             return intervening_span
         else:
@@ -158,18 +162,27 @@ class Span:
     
     @classmethod
     def from_indices(cls, indices, example):
-        if indices[0] >= 0 and indices[1] <= len(example):
-            tokens = example.tokens[indices[0]:indices[1]]
-            span = Span(tokens)
-            span.in_sentence_indices = None
-            span.indices = indices
-            span._get_string()
-            try:
-                span._get_subword_indices()
-            except:
-                pass
-            return span
-
+        # if indices[0] >= 0 and indices[1] <= len(example.tokens) + 1:
+        tokens = example.tokens[indices[0]:indices[1]]
+        span = Span(tokens)
+        span.in_sentence_indices = None
+        span.indices = indices
+        span._get_string()
+        span.parent_example = example
+        try:
+            span._get_subword_indices()
+        except:
+            pass
+        return span
+        
+    def typed_copy(self, type):
+        span = Span.from_indices(self.indices, self.parent_sentence.parent_example)
+        span.parent_sentence = self.parent_sentence
+        span.type = type
+        return span
+    
+    def detach(self):
+        self.parent_sentence = None
 
     def subspans(self):
         if len(self) == 1:
@@ -253,8 +266,9 @@ class SpanPair:
     coref: int = None
 
     def __hash__(self):
-        hash_list = [self.span1.indices, self.span2.indices, self.coref]
+        hash_list = [self.span1.indices, self.span2.indices]
         hash_list.sort()
+        hash_list.append(self.coref)
         return hash(tuple(hash_list))
     
     def __eq__(self, other):
@@ -302,13 +316,13 @@ class SpanPair:
     @classmethod
     def stub(cls):
         return SpanPair(None, None)
-    
+        
 
 #%% ClassConverter
 @parentless_print
 @dataclass
 class ClassConverter:
-    classes: list[str]
+    classes: list[str|None]
 
     def __post_init__(self):
         self.class2index_dict = dict(zip(self.classes, range(len(self.classes))))
@@ -327,6 +341,8 @@ class ClassConverter:
             return [self.index2class(el) for el in object_]
         elif isinstance(object_, set):
             return set(self.index2class(el) for el in object_)
+        elif isinstance(object_, Tensor):
+            return self.index2class_dict[object_.item()]
         elif isinstance(object_, int):
             return self.index2class_dict[object_]
         
@@ -432,15 +448,15 @@ class ClusterPair:
     def _relation_type_mutations(self):
         
         relation_types = self.parent_example.parent_dataset.relation_class_converter.class2index_dict.keys()
-        mutated_relations_with_cluster_pair = set(ClusterPair(self.head, self.tail, el) for i, el in enumerate(relation_types) if i < 10)
+        mutated_relations_with_cluster_pair = set(ClusterPair(self.head, self.tail, self.parent_example, el) for i, el in enumerate(relation_types) if i < 10)
         negative_relations_with_cluster_pair = self._filter_positive_relations(mutated_relations_with_cluster_pair)
         return negative_relations_with_cluster_pair
 
     def _mutate_cluster_pair(self, cluster, head_or_tail):
         if head_or_tail == 'head':
-            return ClusterPair(cluster, self.tail, self.type)
+            return ClusterPair(cluster, self.tail, self.parent_example, self.type)
         elif head_or_tail == 'tail':
-            return ClusterPair(self.head, cluster, self.type)
+            return ClusterPair(self.head, cluster, self.parent_example, self.type)
 
     def _cluster_mutations(self):
         clusters = self.parent_example.clusters - set([self.head, self.tail])

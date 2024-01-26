@@ -5,7 +5,7 @@ trainer:
   accelerator: gpu
   accumulate_grad_batches: 1
   fast_dev_run: False #False #2 #50
-  max_epochs: 7 #30 #2
+  max_epochs: 25 #30 #2
   #limit_val_batches: 0
   num_sanity_val_steps: 0
 
@@ -13,7 +13,7 @@ trainer:
 model:
   dataset_name: DocRED
   lm_checkpoint: bert-base-uncased
-  ner:
+  ner_config:
     class: NER
     config:
       length_embedder:
@@ -34,7 +34,7 @@ model:
             config: 
               output_dim: 128   
       num_entity_classes: {} # to be filled in later    
-  clusterer:
+  clusterer_config:
     class: Coreference
     config: 
       levenshtein_embedder: 
@@ -73,7 +73,7 @@ model:
           embedding_dim: 32
       num_coref_classes: 2
       coref_cutoff: 0.5
-  rc:
+  rc_config:
     class: RelationClassifier
     config:
       span_embedder: 
@@ -163,6 +163,8 @@ model:
     - UntypedLocationRelaxedRCScorer
     # - UntypedStringRelaxedRCScorer
   calculator_class: Calculator
+  neg_to_pos_span_ratio: 3
+  neg_to_pos_span_pair_ratio: 3
 
 # data config
 data:

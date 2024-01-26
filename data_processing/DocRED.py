@@ -4,6 +4,7 @@ from dataclasses import dataclass, fields
 from datasets import load_dataset, concatenate_datasets
 import torch
 from collections import Counter
+from copy import deepcopy
 
 from transformers import AutoTokenizer
 
@@ -501,11 +502,11 @@ tokenizer = AutoTokenizer.from_pretrained(checkpoint)
 
 # converts processed datasets into modeling datasets
 print('making train modeling dataset')
-train_data = train_data.return_Dataset(tokenizer, max_length, entity_types, relation_types)
+train_data = train_data.return_Dataset(tokenizer, max_length, deepcopy(entity_types), deepcopy(relation_types))
 print('making validation modeling dataset')
-valid_data = valid_data.return_Dataset(tokenizer, max_length, entity_types, relation_types)
+valid_data = valid_data.return_Dataset(tokenizer, max_length, deepcopy(entity_types), deepcopy(relation_types))
 print('making test modeling dataset')
-test_data = test_data.return_Dataset(tokenizer, max_length, entity_types, relation_types)
+test_data = test_data.return_Dataset(tokenizer, max_length, deepcopy(entity_types), deepcopy(relation_types))
 # print('making train + validation modeling dataset')
 # train_valid_data = train_valid_data.return_Dataset(tokenizer, max_length, entity_types, relation_types)
 

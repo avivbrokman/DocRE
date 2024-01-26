@@ -62,9 +62,9 @@ class MulticlassScorer(Scorer):
         multiclass_objects['global']['FP_objects'] = self.FP_objects
         multiclass_objects['global']['FN_objects'] = self.FN_objects
         
-        multiclass_objects['global']['TP'] = self.TP
-        multiclass_objects['global']['FP'] = self.FP
-        multiclass_objects['global']['FN'] = self.FN
+        multiclass_scores['global']['TP'] = self.TP
+        multiclass_scores['global']['FP'] = self.FP
+        multiclass_scores['global']['FN'] = self.FN
 
         self.multiclass_objects = multiclass_objects
         self.multiclass_scores = multiclass_scores
@@ -104,6 +104,16 @@ class RelaxedScorer(MulticlassScorer):
             return False
         return True
     
+    def _predicted_cluster_in_gold(self, predicted_cluster, is_typed):
+        for el in self.gold:
+            if is_typed:
+                if not self._equal_type(predicted_cluster, el):
+                    return False
+            else:
+                if self._cluster_equality(predicted_cluster, el):
+                    return el
+        return False
+
     def _predicted_relation_in_gold(self, predicted_relation, is_typed):
         for el in self.gold:
             if is_typed:
@@ -127,9 +137,9 @@ class RelaxedScorer(MulticlassScorer):
 
         for el in self.predicted:
             if cluster_or_relation == 'cluster':
-                membership = self._predicted_cluster_in_gold(is_typed)
+                membership = self._predicted_cluster_in_gold(el, is_typed)
             elif cluster_or_relation == 'relation':
-                membership = self._predicted_relation_in_gold(is_typed)
+                membership = self._predicted_relation_in_gold(el, is_typed)
             if membership:
                 if membership not in extracted_golds:
                     self.TP_objects.add(el)

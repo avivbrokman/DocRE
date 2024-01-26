@@ -21,6 +21,23 @@
             "request": "launch",
             "module": "data_processing.DocRED",
             "console": "integratedTerminal"
-        }
+        },
+        {
+            "name": "validation",
+            "type": "python",
+            "request": "launch",
+            "program": "main.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["validate", "--config", "ELRE_config.yaml", "--ckpt_path", "lightning_logs/version_124/checkpoints/epoch=1-step=6106.ckpt"],
+            "env": {"CUDA_LAUNCH_BLOCKING": "1"}
+        },
+        {
+            "name": "BioRED dataset processing",
+            "type": "python",
+            "request": "launch",
+            "module": "data_processing.BioRED",
+            "console": "integratedTerminal"
+        },
     ]
 }
