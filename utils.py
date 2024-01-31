@@ -26,22 +26,22 @@ def uniquify(path):
     return path
 
 
-# def unlist(nested_list):
-#     unlisted = [subel for el in nested_list for subel in el]
-#     return unlisted
-
 def unlist(nested_list):
-    result = []
+    unlisted = [subel for el in nested_list for subel in el]
+    return unlisted
 
-    for el in nested_list:
-        if isinstance(el, list):
-            # If the element is a list, extend the result by the flattened element
-            result.extend(unlist(el))
-        else:
-            # If the element is not a list, add it directly to the result
-            result.append(el)
+# def unlist(nested_list):
+#     result = []
+
+#     for el in nested_list:
+#         if isinstance(el, list):
+#             # If the element is a list, extend the result by the flattened element
+#             result.extend(unlist(el))
+#         else:
+#             # If the element is not a list, add it directly to the result
+#             result.append(el)
     
-    return result
+#     return result
 
 
 def make_dir(dir_path):
@@ -52,10 +52,13 @@ def make_dir(dir_path):
         print(f"Directory already exists at: {dir_path}")
 
 def mode(values):
-    counts = Counter(values)
-    max_count = max(counts.values())
-    modes = [s for s, count in counts.items() if count == max_count]
-    return random.choice(modes)  
+    if values:
+        counts = Counter(values)
+        max_count = max(counts.values())
+        modes = [s for s, count in counts.items() if count == max_count]
+        return random.choice(modes)  
+    else:
+        return None
 
 def apply(fun):
     

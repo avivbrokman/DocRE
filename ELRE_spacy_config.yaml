@@ -5,14 +5,23 @@ trainer:
   accelerator: gpu
   accumulate_grad_batches: 1
   fast_dev_run: False #False #2 #50
-  max_epochs: 25 #30 #2
-  #limit_val_batches: 0
+  max_epochs: 20 #30 #2
+  check_val_every_n_epoch: 1000 # for blocking validation
+  # limit_val_batches: 0
+  # limit_train_batches: 5
   num_sanity_val_steps: 0
+  callbacks:
+    - class_path: lightning.pytorch.callbacks.ModelCheckpoint
+      init_args:
+        save_top_k: -1
+        every_n_epochs: 1
+        save_on_train_epoch_end: True
+
 
 # model config
 model:
-  dataset_name: DocRED
-  lm_checkpoint: bert-base-uncased
+  dataset_name: BioRED
+  lm_checkpoint: microsoft/BiomedNLP-BiomedBERT-base-uncased-abstract
   ner_config:
     class: NER
     config:
@@ -123,7 +132,7 @@ model:
         config:
           num_embeddings: 64
           embedding_dim: 16
-      cluster_pair_embedder: 
+      relation_embedder: 
         class: MLP1
         config:
           output_dim: 128
@@ -133,7 +142,7 @@ model:
       #     intermediate_dim: 128
       #     output_dim: {} # to be determined in module
       num_relation_classes: {} # to be filled in lightning module
-      is_multilabel: True
+      is_multilabel: False
       rc_cutoff: 0.5
   loss_coefficients: [1,1,1]
   lm_learning_rate: 5e-5
@@ -141,26 +150,27 @@ model:
   ner_scorer_classes:
     - TypedLocationNERScorer
     # - TypedStringNERScorer
-    - UntypedLocationNERScorer
+    # - UntypedLocationNERScorer
     # - UntypedStringNERScorer
   coref_scorer_classes: {}
-  cluster_scorer_classes: 
-    - TypedLocationStrictClusterScorer
+    # - TypedLocationCorefScorer
+  entity_scorer_classes: 
+    - TypedLocationStrictEntityScorer
     # - TypedStringStrictClusterScorer
-    - UntypedLocationStrictClusterScorer
+    # - UntypedLocationStrictClusterScorer
     # - UntypedStringStrictClusterScorer
-    - TypedLocationRelaxedClusterScorer
+    - TypedLocationRelaxedEntityScorer
     # - TypedStringRelaxedClusterScorer
-    - UntypedLocationRelaxedClusterScorer
+    # - UntypedLocationRelaxedClusterScorer
     # - UntypedStringRelaxedClusterScorer
   rc_scorer_classes: 
     - TypedLocationStrictRCScorer
     # - TypedStringStrictRCScorer
-    - UntypedLocationStrictRCScorer
+    # - UntypedLocationStrictRCScorer
     # - UntypedStringStrictRCScorer
     - TypedLocationRelaxedRCScorer
     # - TypedStringRelaxedRCScorer
-    - UntypedLocationRelaxedRCScorer
+    # - UntypedLocationRelaxedRCScorer
     # - UntypedStringRelaxedRCScorer
   calculator_class: Calculator
   neg_to_pos_span_ratio: 3
@@ -169,6 +179,6 @@ model:
 
 # data config
 data:
-  dataset_name: DocRED
-  lm_checkpoint: bert-base-uncased
+  dataset_name: BioRED
+  lm_checkpoint: microsoft/BiomedNLP-BiomedBERT-base-uncased-abstract
 ckpt_path: null

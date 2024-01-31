@@ -3,12 +3,13 @@ from os import path
 from datasets import load_dataset, concatenate_datasets
 import torch
 import spacy
-# import scispacy
+import re
+from copy import deepcopy
 
 from transformers import AutoTokenizer
 
 from utils import make_dir
-from spacy_data_classes import Dataset, tokenize_on_special_characters
+from spacy_data_classes import Dataset, TokenizerModification
 
 
 
@@ -20,13 +21,49 @@ tokenizer = AutoTokenizer.from_pretrained(checkpoint)
 
 
 # make data paths and directories
-output_data_path = path.join('data', 'processed', 'BioRED', checkpoint)
+output_data_path = path.join('BioRED', checkpoint)
 
 make_dir(output_data_path)
 
 # spacy model
-text_processor = spacy.load("en_core_sci_lg")
-text_processor = tokenize_on_special_characters(text_processor, ['-', '/'])
+nlp = spacy.load("en_core_sci_lg")
+
+tokenize_dash = TokenizerModification(re.escape('-'), 'add', 'infix')
+tokenize_backslash = TokenizerModification(re.escape('/'), 'add', 'infix')
+#period_suffix = TokenizerModification(r'(?<=[^\s])\.', 'add', 'suffix')
+#period_suffix = TokenizerModification(r'\.(?=\s)', 'add', 'suffix')
+#period_suffix = TokenizerModification(r'\.', 'add', 'suffix')
+#period_prefix = TokenizerModification(r'\.', 'add', 'prefix')
+#period_infix = TokenizerModification(r'\.', 'add', 'infix')
+# period_suffix = TokenizerModification(r'\.(?=\s|$)', 'add', 'suffix')
+remove_bar = TokenizerModification(re.escape('|'), 'remove', 'infix')
+tokenize_semicolon = TokenizerModification(re.escape(';'), 'add', 'infix')
+tokenize_plus = TokenizerModification(re.escape('+'), 'add', 'infix')
+tokenize_left_parenthesis = TokenizerModification(re.escape('('), 'add', 'infix')
+tokenize_right_parenthesis = TokenizerModification(re.escape(')'), 'add', 'infix')
+#tokenize_right_parenthesis_suffix = TokenizerModification(re.escape(')'), 'add', 'suffix')
+#tokenize_right_parenthesis_prefix = TokenizerModification(re.escape(')'), 'add', 'prefix')
+#tokenize_left_parenthesis_prefix = TokenizerModification(re.escape('('), 'add', 'prefix')
+#tokenize_left_parenthesis_suffix = TokenizerModification(re.escape('('), 'add', 'suffix')
+tokenize_percent = TokenizerModification(r'(%\w+)', 'add', 'infix')
+
+tokenizer_modifications = [tokenize_dash, 
+                           tokenize_backslash, 
+                           tokenize_semicolon, 
+                           tokenize_plus, 
+                           remove_bar, 
+                           tokenize_left_parenthesis, 
+                           tokenize_right_parenthesis,
+                          #  tokenize_right_parenthesis_suffix,
+                          #  tokenize_left_parenthesis_prefix,
+                          #  tokenize_right_parenthesis_prefix,
+                          #  tokenize_left_parenthesis_suffix 
+                           tokenize_percent
+                           ]
+
+nlp = TokenizerModification.modify(nlp, tokenizer_modifications)
+nlp = TokenizerModification.remove_final_period_special_rules(nlp)
+
 
 # load dataset from hugginface
 huggingface_dataset = load_dataset('bigbio/biored')
@@ -34,11 +71,11 @@ huggingface_dataset = load_dataset('bigbio/biored')
 
 # make all splits of dataset
 train_data = huggingface_dataset['train']
-valid_data = huggingface_dataset['validation']
+validation_data = huggingface_dataset['validation']
 test_data = huggingface_dataset['test']
 
-train_valid_data = concatenate_datasets([train_data, valid_data])
-full_data = concatenate_datasets([train_data, valid_data, test_data])
+train_validation_data = concatenate_datasets([train_data, validation_data])
+full_data = concatenate_datasets([train_data, validation_data, test_data])
 
 #%% cleaning
 # =============================================================================
@@ -57,7 +94,7 @@ full_data = concatenate_datasets([train_data, valid_data, test_data])
 # print(entity_types)
 # =============================================================================
 
-# for el_data in [train_data, valid_data, test_data, train_valid_data, full_data]:
+# for el_data in [train_data, validation_data, test_data, train_validation_data, full_data]:
 #     for el_ex in el_data:
 #         title = el_ex['passages'][0]['text'][0]
 #         abstract = el_ex['passages'][1]['text'][0]
@@ -79,32 +116,24 @@ full_data = concatenate_datasets([train_data, valid_data, test_data])
 
 #%% data processing
 # processes full dataset to get complete list of entity types and relation types
-# full_data = Dataset(full_data, text_processor, tokenizer)
-# entity_types = full_data.get_entity_types()
-# relation_types = full_data.get_relation_types()
+full_data = Dataset(full_data, nlp, tokenizer)
+entity_types = full_data.get_entity_types()
+relation_types = full_data.get_relation_types()
 
 
 # processes all datasets
 print('\n train dataset \n')
-# train_data = Dataset(train_data, text_processor, tokenizer, entity_types, relation_types)
-# train_data = Dataset(train_data, text_processor, tokenizer)
+train_data = Dataset(train_data, nlp, tokenizer, deepcopy(entity_types), deepcopy(relation_types))
 print('\n validation dataset \n')
-# valid_data = Dataset(valid_data, text_processor, tokenizer, entity_types, relation_types)
-# valid_data = Dataset(valid_data, text_processor, tokenizer)
+validation_data = Dataset(validation_data, nlp, tokenizer, deepcopy(entity_types), deepcopy(relation_types))
 print('\n test dataset \n')
-# test_data = Dataset(test_data, text_processor, tokenizer, entity_types, relation_types)
-test_data = Dataset(test_data, text_processor, tokenizer)
+test_data = Dataset(test_data, nlp, tokenizer, deepcopy(entity_types), deepcopy(relation_types))
 # print('parsing train + validation dataset')
-# train_valid_data = BioREDDataset(train_valid_data)
-
-# filtering poorly annotated examples
-# train_data.filter_by_title('The Secret of the Nagas')
-# valid_data.filter_by_title('Paul Morphy')
-
+# train_validation_data = Dataset(train_validation_data, nlp, tokenizer, entity_types, relation_types)
 
 #%% More processing
 # relation_combinations_train = train_data.analyze_relations()
-# relation_combinations_valid = valid_data.analyze_relations()
+# relation_combinations_valid = validation_data.analyze_relations()
 # relation_combinations_test = test_data.analyze_relations()
 # torch.save(relation_combinations_train, os.path.join(output_data_path, 'relation_combinations_train.save'))
 # torch.save(relation_combinations_valid, os.path.join(output_data_path, 'relation_combinations_valid.save'))
@@ -116,13 +145,15 @@ entity_class_converter = train_data.entity_class_converter
 relation_class_converter = train_data.relation_class_converter
 
 # Saves everything
-torch.save(entity_types, path.join(output_data_path,'entity_types.save'))
-torch.save(relation_types, path.join(output_data_path,'relation_types.save'))
-torch.save(entity_class_converter, path.join(output_data_path,'entity_class_converter.save'))
-torch.save(relation_class_converter, path.join(output_data_path,'relation_class_converter.save'))
+torch.save(entity_types, path.join('data', 'processed', output_data_path,'entity_types.save'))
+torch.save(relation_types, path.join('data', 'processed', output_data_path,'relation_types.save'))
+torch.save(entity_class_converter, path.join('data', 'processed', output_data_path,'entity_class_converter.save'))
+torch.save(relation_class_converter, path.join('data', 'processed', output_data_path,'relation_class_converter.save'))
+Dataset.save_nlp(nlp, 'BioRED')
 
-torch.save(train_data, path.join(output_data_path,'train_data.save'))    
-torch.save(valid_data, path.join(output_data_path,'validation_data.save'))    
-torch.save(test_data, path.join(output_data_path,'test_data.save'))   
-# torch.save(train_valid_data, path.join(output_data_path,'train_validation_data.save'))   
+train_data.save(output_data_path, 'train')
+validation_data.save(output_data_path, 'validation')
+test_data.save(output_data_path, 'test')
+# train_validation_data.save(output_data_path, 'train_validation')
+
 
