@@ -9,7 +9,7 @@ from copy import deepcopy
 from transformers import AutoTokenizer
 
 from utils import make_dir
-from spacy_data_classes import Dataset, TokenizerModification
+from spacy_data_classes_CDR import Dataset, TokenizerModification
 
 #%% processing
 dataset_name = 'CDR'
@@ -20,9 +20,10 @@ tokenizer = AutoTokenizer.from_pretrained(checkpoint)
 
 
 # make data paths and directories
-output_data_path = path.join(dataset_name, checkpoint)
+# dataset_path = path.join('data', 'processed', dataset_name)
+# lm_data_path = path.join(general_data_path,  checkpoint)
 
-make_dir(output_data_path)
+# make_dir(lm_data_path)
 
 # spacy model
 nlp = spacy.load("en_core_sci_lg")
@@ -144,15 +145,18 @@ entity_class_converter = train_data.entity_class_converter
 relation_class_converter = train_data.relation_class_converter
 
 # Saves everything
-torch.save(entity_types, path.join('data', 'processed', output_data_path,'entity_types.save'))
-torch.save(relation_types, path.join('data', 'processed', output_data_path,'relation_types.save'))
-torch.save(entity_class_converter, path.join('data', 'processed', output_data_path,'entity_class_converter.save'))
-torch.save(relation_class_converter, path.join('data', 'processed', output_data_path,'relation_class_converter.save'))
+# torch.save(entity_types, path.join(dataset_path,'entity_types.save'))
+# torch.save(relation_types, path.join(dataset_path,'relation_types.save'))
+# torch.save(entity_class_converter, path.join(dataset_path,'entity_class_converter.save'))
+# torch.save(relation_class_converter, path.join(dataset_path,'relation_class_converter.save'))
+
+
+train_data.save_class_types_and_converters(dataset_name)
 Dataset.save_nlp(nlp, dataset_name)
 
-train_data.save(output_data_path, 'train')
-validation_data.save(output_data_path, 'validation')
-test_data.save(output_data_path, 'test')
+train_data.save(dataset_name, checkpoint, 'train')
+validation_data.save(dataset_name, checkpoint, 'validation')
+test_data.save(dataset_name, checkpoint, 'test')
 # train_validation_data.save(output_data_path, 'train_validation')
 
 

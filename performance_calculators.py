@@ -1,5 +1,6 @@
 #%% libraries
 from collections import defaultdict
+from utils import defaultdict2dict
 
 #%% 
 class Calculator:
@@ -37,7 +38,7 @@ class Calculator:
             results[class_]['recall'] = self.compute_recall(counts_dict['TP'], counts_dict['FN'])
             results[class_]['F1'] = self.compute_F1(counts_dict['TP'], counts_dict['FP'], counts_dict['FN'])
         
-        return results
+        return defaultdict2dict(results)
     
     def reset(self):
         self.__init__()

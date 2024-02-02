@@ -3,6 +3,9 @@
 output/
 lightning_logs/
 data/processed
+script_logs/
+*.log
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

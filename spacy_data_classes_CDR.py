@@ -132,6 +132,12 @@ Doc.set_extension("relations", default = set())
 #%% SpanUtils
 class SpanUtils:
     
+    #!!!!!!! But actually just add this in to master script
+    @staticmethod
+    def is_discontinuous(annotation):
+        return len(annotation['offsets']) > 1
+    #!!!!!!
+
     @staticmethod
     def char_indices(annotation):
         start_char_index, end_char_index = annotation['offsets'][0]
@@ -140,16 +146,20 @@ class SpanUtils:
     @staticmethod
     def text(annotation):
         return annotation['text'][0]    
-
+    
+    #!!!!!!!!!!!!
     @staticmethod
     def type(annotation):
-        return annotation['semantic_type_id']
+        return annotation['type']
     
     @staticmethod
     def id(annotation):
-        id_string = annotation['concept_id']
-        id_list = id_string.split(',')
-        return id_list
+        ids_list = annotation['normalized']
+        ids = [el['db_id'] for el in ids_list]
+        ids = list(set(ids))
+
+        return ids
+    #!!!!!!!!!
 
 
 
@@ -162,7 +172,7 @@ class SpanUtils:
         span._.subword_indices = (span[0]._.subword_indices[0], span[-1]._.subword_indices[1])
     
     @staticmethod
-    def one_shift_subspans(span):
+    def subspans(span):
         subspans = set()
         left_subspan = span[1:]
         right_subspan = span[:-1]
@@ -174,23 +184,6 @@ class SpanUtils:
             subspans.add(right_subspan)
 
         return subspans
-    
-    @staticmethod
-    def high_shift_subspans(span):
-        subspans = set()
-        for start in range(span.start, span.end - 1):
-            for end in range(start + 1, span.end):
-                subspan = span[start:end]
-                SpanUtils.get_subword_indices(subspan)
-                subspans.add(subspan)
-
-        keep_subspans = subspans - SpanUtils.one_shift_subspans
-        return keep_subspans
-
-    
-
-
-
     
     @staticmethod
     def superspans(span, doc):
@@ -307,7 +300,7 @@ class EvalMention:
     
     @classmethod
     def from_span(cls, span):
-        start_char, end_char = span.start_char, span.end_char
+        start_char, end_char = span._.subword_indices
         text = span.text
         type_ = span.label_
         id_ = span._.id
@@ -560,8 +553,11 @@ class Example:
         self._get_entities()
         self._get_relations()
 
+    #!!!!!!
     def _get_pmid(self):
-        self.pmid = self.annotation['pmid']
+        title_passage = self.annotation['passages'][0]
+        self.pmid = title_passage['document_id']
+    #!!!!!!!
 
     def _get_text(self):
         passages = self.annotation['passages']
@@ -575,34 +571,13 @@ class Example:
         
     def _get_doc(self):
         self.doc = self.parent_dataset.nlp(self.text)
-        
-#     def _get_character_word_index_converters(self):
-#         self.start_character2word = dict()
-#         self.end_character2word = dict()
-# # 
-# #         self.word2character = dict()
-# # 
-#         
-#         for el in self.doc.tokens:
-#             start_character_index = el.idx
-#             end_character_index = start_character_index + len(el)
-#             word_index = el.i
-#             
-#             self.start_character2word[start_character_index] = word_index
-#             self.end_character2word[end_character_index] = word_index + 1
-    
+
     def _get_sentence_indices(self):
         for i, sentence in enumerate(self.doc.sents):
             for token in sentence:
                 token._.sentence_index = i
 
     def _get_mention(self, annotation):
-# =============================================================================
-#         start_character_index, end_character_index = annotation['offsets'][0]
-#         start_word = self.start_character2word[start_character_index]
-#         end_word = self.end_character2word[end_character_index]
-#         span = self.doc[start_word:end_word]
-# =============================================================================
         start_char_index, end_char_index = SpanUtils.char_indices(annotation)
         type_ = SpanUtils.type(annotation)
         mention = self.doc.char_span(start_char_index, end_char_index, label = type_)
@@ -611,35 +586,22 @@ class Example:
             SpanUtils.get_subword_indices(mention)
         eval_mention = EvalMention.from_annotation(annotation)
         return mention, eval_mention
-                
+
+    #!!!!!!!!!! 
     def _get_mentions(self):
         self.doc._.mentions = set()
         self.eval_mentions = list()
         
-        for el in self.annotation['entities']:
-            if len(el['offsets']) == 1:
+        annotated_mentions = self.annotation['passages'][0]['entities'] + self.annotation['passages'][1]['entities']
+        
+        for el in annotated_mentions:
+            if not SpanUtils.is_discontinuous(el): #!!!!! add this into BioRED too?
                 mention, eval_mention = self._get_mention(el)
                 if mention:
                     self.doc._.mentions.add(mention)
                 self.eval_mentions.append(eval_mention)
-        
-# =============================================================================
-#     def _get_entities(self):
-#         entity_dict = default_dict(set)
-#         for el in self.annotation['entities']:
-#             if len(el.offsets) == 1: # removes discontinuous mentions
-#                 span = self._get_span(el)
-#                 entity_dict[span._.id].add(span)
-#         for id_, entity in entity_dict.items():
-#             type_ = list(entity)[0]._.type
-#             entity_dict[id_] = SpanGroup(self.doc, 
-#                                          name = id_, 
-#                                          attrs = {'id': id_, 'type': type_},
-#                                          spans = entity
-#                                          )
-#         self.doc.spans = entity_dict
-# =============================================================================
-    
+    #!!!!!!!!!!!!
+                   
     def _get_train_entities(self):
         entity_dict = defaultdict(set)
         for mention in self.doc._.mentions:
@@ -667,33 +629,45 @@ class Example:
     def _get_entities(self):        
         self._get_train_entities()
         self._get_eval_entities()
-        
+
+    #!!!!!!!!!    
     def _get_train_relation(self, annotation):
-        entity1 = self.doc.spans[annotation['concept_1']]
-        entity2 = self.doc.spans[annotation['concept_2']]
-        relation = Relation(entity1, entity2, annotation['type'])
+        entity1 = self.doc.spans[annotation['arg1_id']]
+        entity2 = self.doc.spans[annotation['arg2_id']]
+        relation = Relation(entity1, entity2, 'CID')
         return relation
-        
+    #!!!!!!!!!!
+
+    #!!!!!!!!    
     def _get_train_relations(self):
         self.doc._.relations = set()
-        for el in self.annotation['relations']:
+        
+        annotated_relations = self.annotation['passages'][0]['relations'] + self.annotation['passages'][1]['relations']
+
+        for el in annotated_relations:
             try:
                 relation = self._get_train_relation(el)
                 self.doc._.relations.add(relation)
             except:
                 pass
-    
+    #!!!!!!!!
+
+    #!!!!!!!!        
     def _get_eval_relation(self, annotation):
-        head_id = annotation['concept_1']
-        tail_id = annotation['concept_2']
+        head_id = annotation['arg1_id']
+        tail_id = annotation['arg2_id']
         head = next(el for el in self.eval_entities if el.id == head_id)
         tail = next(el for el in self.eval_entities if el.id == tail_id)
-        type_ = annotation['type']
+        type_ = 'CID'
         relation = EvalRelation(head, tail, type_)
         return relation
+    #!!!!!!!!!
 
+    #!!!!!!!!!
     def _get_eval_relations(self):
-        self.eval_relations = [self._get_eval_relation(el) for el in self.annotation['relations']]
+        annotated_relations = self.annotation['passages'][0]['relations'] + self.annotation['passages'][1]['relations']
+        self.eval_relations = [self._get_eval_relation(el) for el in annotated_relations]
+    #!!!!!!!!
 
     def _get_relations(self):
         self._get_train_relations()
@@ -875,105 +849,6 @@ class Dataset:
         if self.relation_types:
             self.relation_class_converter = self._get_type_converter(self.relation_types, None)
 
-    # @staticmethod
-    # def save_nlp(nlp, dataset_name):
-    
-    #     nlp_filename = path.join('data', 'processed', dataset_name, 'nlp.spacy_model')
-    #     nlp.to_disk(nlp_filename)
-
-    # @staticmethod
-    # def load_nlp(dataset_name):
-    #     nlp = spacy.load('en_core_sci_lg')
-        
-    #     nlp_filename = path.join('data', 'processed', dataset_name, 'nlp.spacy_model')
-
-    #     nlp.from_disk(nlp_filename)
-
-    #     return nlp
-
-
-
-    # # @staticmethod
-    # # def save_nlp(nlp, dataset_name):
-    # #     # Serialize
-    # #     config = nlp.config
-    # #     bytes_data = nlp.to_bytes()
-
-    # #     # Save config and bytes_data to files
-    # #     nlp_config_filename = path.join('data', 'processed', dataset_name, 'nlp_config.json')
-    # #     nlp_bytes_filename = path.join('data', 'processed', dataset_name, 'nlp_bytes.bin')        
-
-    # #     with open(nlp_config_filename, 'w') as file:
-    # #         file.write(config.to_str())
-    # #     with open(nlp_bytes_filename, 'wb') as file:
-    # #         file.write(bytes_data)
-
-    # # @staticmethod
-    # # def load_nlp(dataset_name):
-    # #     nlp_config_filename = path.join('data', 'processed', dataset_name, 'nlp_config.json')
-    # #     nlp_bytes_filename = path.join('data', 'processed', dataset_name, 'nlp_bytes.bin')
-
-    # #     with open(nlp_config_filename, 'r') as file:
-    # #         config = spacy.util.load_config(file)
-    # #     with open(nlp_bytes_filename, 'rb') as file:
-    # #         bytes_data = file.read()
-
-    # #     lang_cls = spacy.util.get_lang_class(config["nlp"]["lang"])
-    # #     nlp = lang_cls.from_config(config)
-    # #     nlp.from_bytes(bytes_data)
-
-    # #     return nlp
-    
-    # # @staticmethod
-    # # def detach_relations(example):
-    # #     example.detached_relations = example.doc._.relations
-    # #     example.doc._relations
-
-    # def save(self, save_dir, split):
-    #     # directories
-    #     data_path = path.join(save_dir)
-    #     split_path = path.join(data_path, split)
-    #     make_dir(split_path)
-
-    #     # detach mentions and relations from spacy do
-    #     for example in self.examples:
-    #         SaveUtils.remove_mentions_from_doc(example)
-    #         SaveUtils.move_relations_to_example(example)
-    #     # Save spaCy docs
-    #     for i, example in enumerate(self.examples):
-    #         example.doc.to_disk(path.join(split_path, f'doc_{i}.spacy'))
-
-    #     # Save dataset without spaCy docs
-    #     for example in self.examples:
-    #         example.doc = None
-    #     torch.save(self, path.join(split_path, 'data.save'))
-
-    #     if example.pmid == '14722929':
-    #         for i, el in enumerate(example.doc):
-    #             if not el._.subword_indices:
-    #                 print(el)
-    # @staticmethod
-    # def load(dataset_name, lm_checkpoint, split, nlp):
-        
-    #     split_path = path.join('data', 'processed', dataset_name, lm_checkpoint, split)
-
-    #     # Load dataset
-    #     dataset = torch.load(path.join(split_path, 'data.save'))
-
-    #     # Reload spaCy docs
-    #     for i, example in enumerate(dataset.examples):
-    #         example.doc = Doc(nlp.vocab).from_disk(path.join(split_path, f'doc_{i}.spacy'))
-    #         example._get_sentence_indices()
-    #         example._tokenize()
-
-    #         SaveUtils.span_group2mentions(example)
-    #         SaveUtils.move_relations_to_doc(example)
-    #         if example.pmid == '14722929':
-    #             for i, el in enumerate(example.doc):
-    #                 if not el._.subword_indices:
-    #                     print(el)
-    #     return dataset
-    
     def save_class_types_and_converters(self, dataset_name):
         save_dir = path.join('data', 'processed', dataset_name)
         make_dir(save_dir)
@@ -1078,3 +953,4 @@ class Dataset:
             SaveUtils.move_relations_to_doc(example)
 
         return dataset
+    

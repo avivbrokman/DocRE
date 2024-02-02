@@ -19,11 +19,9 @@ class ELREDataModule(LightningDataModule):
     def setup(self, stage = None):
         nlp = Dataset.load_nlp(self.dataset_name)
 
-        save_dir = self._get_dataset_dir(self.dataset_name, self.lm_checkpoint)
-
-        self.train_data = Dataset.load(save_dir, 'train', nlp)
-        self.validation_data = Dataset.load(save_dir, 'validation', nlp)
-        self.test_data = Dataset.load(save_dir, 'test', nlp)
+        self.train_data = Dataset.load(self.dataset_name, self.lm_checkpoint, 'train', nlp)
+        self.validation_data = Dataset.load(self.dataset_name, self.lm_checkpoint, 'validation', nlp)
+        self.test_data = Dataset.load(self.dataset_name, self.lm_checkpoint, 'test', nlp)
 
         try:
             self.entity_type_converter = self.train_data.entity_type_converter

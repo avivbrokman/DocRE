@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from collections import defaultdict
 
 from spacy_data_classes import Span, EvalMention, SpanPair, EvalSpanPair, SpanGroup, EvalEntity, Relation, EvalRelation
+from utils import defaultdict2dict
+
 # from data_classes import ClusterPair
 #%% Base Scorer
 @dataclass
@@ -48,6 +50,24 @@ class UniclassScorer(Scorer):
 @dataclass
 class MulticlassScorer(Scorer):
 
+    # @staticmethod
+    # def defaultdict_with_factory(factory):
+    #     def inner_defaultdict():
+    #         return defaultdict(factory)
+    #     return inner_defaultdict
+    
+    # @staticmethod
+    # def zero_factory():
+    #     return 0
+
+    # @staticmethod
+    # def set_factory():
+    #     return set()
+    
+    # @classmethod
+    # def init_defaultdict(cls, factory):
+    #     return defaultdict(cls.defaultdict_with_factory(factory))
+
     def get_multiclass_scores(self):
         # multiclass
         multiclass_objects = defaultdict(lambda: defaultdict(set))
@@ -71,8 +91,8 @@ class MulticlassScorer(Scorer):
         multiclass_scores['global']['FP'] = self.FP
         multiclass_scores['global']['FN'] = self.FN
 
-        self.multiclass_objects = multiclass_objects
-        self.multiclass_scores = multiclass_scores
+        self.multiclass_objects = defaultdict2dict(multiclass_objects)
+        self.multiclass_scores = defaultdict2dict(multiclass_scores)
 
     def score(self):
         # overall

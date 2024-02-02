@@ -4,6 +4,7 @@ from collections import Counter
 import json
 from copy import deepcopy
 from dataclasses import is_dataclass, replace, fields
+from collections import defaultdict
 
 
 import random
@@ -162,3 +163,8 @@ def apply_to_list(to_apply, items, **kwargs):
     # If 'to_apply' is a string, assume it's a method name and invoke it
     elif isinstance(to_apply, str):
         return [getattr(item, to_apply)(**kwargs) for item in items]
+    
+def defaultdict2dict(d):
+    if isinstance(d, defaultdict):
+        d = {key: defaultdict2dict(value) for key, value in d.items()}
+    return d

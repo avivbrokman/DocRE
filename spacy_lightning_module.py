@@ -4,6 +4,7 @@
 #%% libraries
 import os
 from os import path
+import re
 import torch
 from torch.nn import Embedding
 from torch.nn.functional import cross_entropy, binary_cross_entropy_with_logits
@@ -19,102 +20,146 @@ from utils import save_json
 
 #%% body
 class ELRELightningModule(LightningModule):
-    def __init__(self, dataset_name, lm_checkpoint, ner_config, clusterer_config, rc_config, loss_coefficients, lm_learning_rate, learning_rate, ner_scorer_classes, coref_scorer_classes, entity_scorer_classes, rc_scorer_classes, calculator_class, neg_to_pos_span_ratio, neg_to_pos_span_pair_ratio, max_span_length):
+    def __init__(self, 
+                 dataset_name, 
+                 lm_checkpoint, 
+                 task,
+                 ner_config, clusterer_config, rc_config, 
+                 loss_coefficients, 
+                 lm_learning_rate, learning_rate, 
+                 ner_scorer_classes, coref_scorer_classes, entity_scorer_classes, rc_scorer_classes, 
+                 calculator_class, 
+                 neg_to_pos_span_ratio, neg_to_pos_span_pair_ratio, 
+                 max_span_length):
         super().__init__()
         self.save_hyperparameters()
         
+        self.task = task
 
         # gets type converters
         self.entity_type_converter = torch.load(path.join('data', 'processed', dataset_name, lm_checkpoint, 'entity_class_converter.save'))
-        self.relation_type_converter = torch.load(path.join('data', 'processed', dataset_name, lm_checkpoint, 'relation_class_converter.save'))
+        
+        if self.task in ['rc', 'e2e']:
+            self.relation_type_converter = torch.load(path.join('data', 'processed', dataset_name, lm_checkpoint, 'relation_class_converter.save'))
 
-        ner_config['config']['num_entity_classes'] = len(self.entity_type_converter)
-        rc_config['config']['num_relation_classes'] = len(self.relation_type_converter)
-        if rc_config['config']['is_multilabel']:
-            rc_config['config']['num_relation_classes'] -= 1
+        # dynamically add number of classes to modeling configs so the user doesn't need to specify them
+        if self.task in ['ner', 'e2e']:
+            ner_config['config']['num_entity_classes'] = len(self.entity_type_converter)
+        if self.task in ['rc, e2e']:
+            rc_config['config']['num_relation_classes'] = len(self.relation_type_converter)
+            
+            # if the task is multilabel, there should be no null class classifier, so remove one from the number of relation classes
+            if rc_config['config']['is_multilabel']:
+                rc_config['config']['num_relation_classes'] -= 1
 
         # instantiates neural components
         self.lm = AutoModel.from_pretrained(lm_checkpoint)
 
-        # allows BERT to handle longer sequences
+        # allows language model to handle longer sequences
         self.expand_position_embeddings(1024)
 
-        if ner_config:
-            self.ner_config = ner_config #self.recursive_instantiate(ner_config)
-        if clusterer_config:
-            self.clusterer_config = clusterer_config #self.recursive_instantiate(clusterer)
-        if rc_config:
-            self.rc_config = rc_config #self.recursive_instantiate(rc)
+        # keep configs
+        if self.task in ['ner', 'e2e']:
+            self.ner_config = ner_config 
+        if self.task in ['cluster', 'e2e']:
+            self.clusterer_config = clusterer_config
+        if self.task in ['rc', 'e2e']:
+            self.rc_config = rc_config
 
-        if ner_config:
+        # instantiating models
+        if self.task in ['ner', 'e2e']:
             self.ner = self.recursive_instantiate(ner_config)
-        if clusterer_config:
+        if self.task in ['cluster', 'e2e']:
             self.clusterer = self.recursive_instantiate(clusterer_config)
-        if rc_config:
+        if self.task in ['rc', 'e2e']:
             self.rc = self.recursive_instantiate(rc_config)
 
-        self.neg_to_pos_span_ratio = neg_to_pos_span_ratio
-        self.neg_to_pos_span_pair_ratio = neg_to_pos_span_pair_ratio
+        # settings for sampling negative examples
+        if self.task in ['ner', 'e2e']:
+            self.neg_to_pos_span_ratio = neg_to_pos_span_ratio
+        if self.task in ['cluster', 'e2e']:
+            self.neg_to_pos_span_pair_ratio = neg_to_pos_span_pair_ratio
 
         # loss
-        self.loss_coefficients = loss_coefficients
+        if self.task == 'ner':
+            self.loss_coefficients = [1,0,0]
+        if self.task == 'cluster': 
+            self.loss_coefficients = [0,1,0]
+        if self.task == 'rc':
+            self.loss_coefficients = [0,0,1]
+        if self.task == 'e2e':
+            self.loss_coefficients = loss_coefficients
+            
+        # learning rate
         self.lm_learning_rate = lm_learning_rate
         self.learning_rate = learning_rate
 
         # gets scorer classes
-        if ner_config:
+        if self.task in ['ner', 'e2e']:
             self.ner_scorer_classes = self._instantiate_scorers(ner_scorer_classes)
         
-        if clusterer_config:
+        if self.task in ['cluster', 'e2e']:
             self.coref_scorer_classes = self._instantiate_scorers(coref_scorer_classes)
             self.entity_scorer_classes = self._instantiate_scorers(entity_scorer_classes)
-        if rc_config:
+        if self.task in ['rc', 'e2e']:
             self.rc_scorer_classes = self._instantiate_scorers(rc_scorer_classes)
 
         # instantiates calculators -- one for each scorer class
         calculators = import_module('performance_calculators')
         calculator_class = getattr(calculators, calculator_class)
 
-        if ner_config:
+        if self.task in ['ner', 'e2e']:
             self.ner_performance_calculators = self._create_performance_calculators(self.ner_scorer_classes, calculator_class)
-        if clusterer_config:
+        if self.task in ['cluster', 'e2e']:
             self.coref_performance_calculators = self._create_performance_calculators(self.coref_scorer_classes, calculator_class)
             self.entity_performance_calculators = self._create_performance_calculators(self.entity_scorer_classes, calculator_class)
-        if rc_config:
+        if self.task in ['rc', 'e2e']:
             self.rc_performance_calculators = self._create_performance_calculators(self.rc_scorer_classes, calculator_class)
 
-        #
+        # sets dataset_name
         self.dataset_name = dataset_name
+        
+        # sets evaluation maximum candidate span length
         self.max_span_length = max_span_length
 
         # creates lists for storage of details of results
-        self.validation_details = list()
-        self.test_details = list()
+        # self.validation_details = list()
+        # self.test_details = list()
 
-        self.validation_performance = list()
-        self.test_performance = list()
+        # self.validation_performance = list()
+        # self.test_performance = list()
 
     def on_load_checkpoint(self, checkpoint):
         super().on_load_checkpoint(checkpoint)
         # Retrieve and use extra information for re-instantiation
-        self.ner_config = checkpoint.get('ner_config')
-        self.clusterer_config = checkpoint.get('clusterer_config')
-        self.rc_config = checkpoint.get('rc_config')
-
-        # Re-instantiate components if necessary
-        if self.ner_config:
+        if self.task in ['ner', 'e2e']:
+            self.ner_config = checkpoint.get('ner_config')
             self.ner = self.recursive_instantiate(self.ner_config)
-        if self.clusterer_config:
+        if self.task in ['cluster', 'e2e']:
+            self.clusterer_config = checkpoint.get('clusterer_config')
             self.clusterer = self.recursive_instantiate(self.clusterer_config)
-        if self.rc_config:
+        if self.task in ['rc', 'e2e']:
+            self.rc_config = checkpoint.get('rc_config')
             self.rc = self.recursive_instantiate(self.rc_config)
+
+
+        # # Re-instantiate components if necessary
+        # if self.ner_config:
+        #     self.ner = self.recursive_instantiate(self.ner_config)
+        # if self.clusterer_config:
+        #     self.clusterer = self.recursive_instantiate(self.clusterer_config)
+        # if self.rc_config:
+        #     self.rc = self.recursive_instantiate(self.rc_config)
 
     def on_save_checkpoint(self, checkpoint):
         super().on_save_checkpoint(checkpoint)
         # Add extra information necessary for re-instantiation
-        checkpoint['ner_config'] = self.ner_config
-        checkpoint['clusterer_config'] = self.clusterer_config
-        checkpoint['rc_config'] = self.rc_config
+        if self.task in ['ner', 'e2e']:
+            checkpoint['ner_config'] = self.ner_config
+        if self.task in ['cluster', 'e2e']:
+            checkpoint['clusterer_config'] = self.clusterer_config
+        if self.task in ['rc', 'e2e']:
+            checkpoint['rc_config'] = self.rc_config
 
 
     def _replace_string_with_def(self, class_info, key_name, module_names):
@@ -325,17 +370,17 @@ class ELRELightningModule(LightningModule):
         token_embeddings = self.lm_step(example)
 
         loss = torch.tensor([0], dtype = torch.float32).to(self.device)
-        if self.ner:
+        if self.task in ['ner', 'e2e']:
             ner_loss = self.ner_training_step(example, token_embeddings)
             ner_loss *= self.loss_coefficients[0]
             loss += ner_loss
             
-        if self.clusterer:
+        if self.task in ['cluster', 'e2e']:
             clusterer_loss = self.cluster_training_step(example, token_embeddings)
             clusterer_loss *= self.loss_coefficients[1]
             loss += clusterer_loss
 
-        if self.rc:
+        if self.task in ['rc', 'e2e']:
             rc_loss = self.rc_training_step(example, token_embeddings)
             rc_loss *= self.loss_coefficients[2]
             loss += rc_loss
@@ -347,29 +392,32 @@ class ELRELightningModule(LightningModule):
         # obtain predictions
         token_embeddings = self.lm_step(example)
 
-        if self.ner:
+        # ner
+        if self.task in ['ner', 'e2e']:
             predicted_mentions = self.ner_inference_step(example, token_embeddings)
-        if self.clusterer:
-            if self.ner:
-                candidate_span_pairs = self.clusterer.exhaustive_intratype_pairs(predicted_mentions)
-                predicted_coreferences, predicted_entities = self.cluster_inference_step(candidate_span_pairs, predicted_mentions, token_embeddings, example.doc)
+        
+        # clustering
+        if self.task == 'e2e':
+            candidate_span_pairs = self.clusterer.exhaustive_intratype_pairs(predicted_mentions)
+            predicted_coreferences, predicted_entities = self.cluster_inference_step(candidate_span_pairs, predicted_mentions, token_embeddings, example.doc)
 
-            else:
-                candidate_span_pairs = example.positive_span_pairs() + example.negative_span_pairs()
-                predicted_coreferences, predicted_entities = self.cluster_inference_step(candidate_span_pairs, example.doc._.mentions, token_embeddings)
+        elif self.task == 'cluster':
+            candidate_span_pairs = example.positive_span_pairs() + example.negative_span_pairs()
+            predicted_coreferences, predicted_entities = self.cluster_inference_step(candidate_span_pairs, example.doc._.mentions, token_embeddings)
+
+        # rc     
+        if self.task == 'e2e':
+            candidate_relations = self.rc.dataset2relation_constructor[self.dataset_name](predicted_entities)
             
-        if self.rc:
-            if self.clusterer:
-                candidate_relations = self.rc.dataset2relation_constructor[self.dataset_name](predicted_entities)
-                
-            else:
-                candidate_relations = example.doc._.relations + example.negative_relations()
-                
+        elif self.task == 'rc':
+            candidate_relations = example.doc._.relations + example.negative_relations()
+            
+        if self.task in ['rc', 'e2e']:
             predicted_relations = self.rc_inference_step(candidate_relations, token_embeddings)
                 
         # example performance
         # print('step performance')
-        if self.ner:
+        if self.task in ['ner', 'e2e']:
             ner_scorers = dict()
             for el in self.ner_scorer_classes:
                 scorer = el(predicted_mentions, set(example.eval_mentions))
@@ -379,7 +427,7 @@ class ELRELightningModule(LightningModule):
                 ner_scorers[class_name] = scorer
                 calculator = self.ner_performance_calculators[class_name]
                 calculator.update(counts)
-        if self.clusterer:
+        if self.task in ['cluster', 'e2e']:
             coref_scorers = dict()
             for el in self.coref_scorer_classes:
                 scorer = el(predicted_coreferences, example.positive_span_pairs())
@@ -396,7 +444,7 @@ class ELRELightningModule(LightningModule):
                 class_name = el.__name__
                 entity_scorers[class_name] = scorer
                 self.entity_performance_calculators[class_name].update(counts)
-        if self.rc:
+        if self.task in ['rc', 'e2e']:
             rc_scorers = dict()
             for el in self.rc_scorer_classes:
                 scorer = el(predicted_relations, example.eval_relations)
@@ -407,28 +455,40 @@ class ELRELightningModule(LightningModule):
                 self.rc_performance_calculators[class_name].update(counts)
 
         # organizing results and details for error analysis
-        details = {'example': example, 
-                   'example_index': example_index
+        details = {'text': example.text, 
+                   'pmid': example.pmid
                    }
         
-        if self.ner:
-            details['predicted_mentions'] = predicted_mentions
+        if self.task in ['ner', 'e2e']:
+            # details['predicted_mentions'] = predicted_mentions
             details['ner_scorers'] = ner_scorers
-        if self.clusterer:
-            details['predicted_coref_pairs'] = predicted_coreferences
-            details['predicted_entities'] = predicted_entities
+        if self.task in ['cluster', 'e2e']:
+            # details['predicted_coref_pairs'] = predicted_coreferences
+            # details['predicted_entities'] = predicted_entities
             details['coref_scorers'] = coref_scorers
             details['entity_scorers'] = entity_scorers
-        if self.rc:
-            details['predicted_relations'] = predicted_relations
+        if self.task in ['rc', 'e2e']:
+            # details['predicted_relations'] = predicted_relations
             details['rc_scorers'] = rc_scorers
         
         return details
 
+    def _update_details(self, details):
+        if self.validation_details == []: #1st example of 1st epoch
+            self.validation_details.append(details)
+        elif isinstance(self.validation_details[0], dict): # 1st epoch
+            self.validation_details.append(details)
+        else:
+            self.validation_details[-1].append(details) # non-1st epoch
+
+
+
     def validation_step(self, example, example_index):
         # if self.current_epoch < -1: #50:
         details = self.inference_step(example, example_index)
-        self.validation_details[-1].append(details)
+        
+        self._update_details(details)
+        # self.validation_details[-1].append(details)
 
 
     def test_step(self, example, example_index):
@@ -442,44 +502,92 @@ class ELRELightningModule(LightningModule):
     def _compute_calculators(self, calculator_dict):
         return {key: value.compute() for key, value in calculator_dict.items()}
 
-    def on_validation_start(self):
-        # create a new list of example performance details for the new epoch
-        self.validation_details.append(list())
-            
-    def on_validation_end(self):
-        if self.current_epoch > -1:
-            # obtain and save performance
-            performance = dict()
-            if self.ner:
-                performance['ner'] = self._compute_calculators(self.ner_performance_calculators)
-            if self.clusterer:
-                performance['coref'] =  self._compute_calculators(self.coref_performance_calculators)
-                performance['entity'] =  self._compute_calculators(self.entity_performance_calculators)
-            if self.rc:
-                performance['rc'] =  self._compute_calculators(self.rc_performance_calculators)
+    def _prepare_save_objects(self):
+        if not hasattr(self, 'validation_details'):
+            self.validation_details = list()
+        elif hasattr(self, 'validation_details'):
+            if isinstance(self.validation_details[0], dict):
+                self.validation_details = [self.validation_details]
+            self.validation_details.append(list())
 
+        if not hasattr(self, 'validation_performance'):
+            pass
+        elif hasattr(self, 'validation_performance'):
+            if isinstance(self.validation_performance, dict):
+                self.validation_performance = [self.validation_performance]
+
+    def on_validation_start(self):
+        self._prepare_save_objects()
+
+    def _get_performance(self):
+        performance = dict()
+        if self.task in ['ner', 'e2e']:
+            performance['ner'] = self._compute_calculators(self.ner_performance_calculators)
+        if self.task in ['cluster', 'e2e']:
+            performance['coref'] =  self._compute_calculators(self.coref_performance_calculators)
+            performance['entity'] =  self._compute_calculators(self.entity_performance_calculators)
+        if self.task in ['rc', 'e2e']:
+            performance['rc'] =  self._compute_calculators(self.rc_performance_calculators)
+
+        return performance
+    
+    def _update_performance(self, performance):
+        if not hasattr(self, 'validation_performance'):
+            self.validation_performance = performance
+        elif hasattr(self, 'validation_performance'):
             self.validation_performance.append(performance)
 
-            print(self.validation_performance)
-            save_json(self.validation_performance, path.join(self.logger.log_dir, 'performance'))
+    def _extract_epoch(self):
+        match = re.search(r'epoch=(\d+)', self.trainer.ckpt_path)
+        epoch_number = int(match.group(1))
+        return epoch_number
 
-            # resetting calculators
-            if self.ner:
-                self._reset_calculators(self.ner_performance_calculators)
-            if self.clusterer:
-                self._reset_calculators(self.coref_performance_calculators)
-                self._reset_calculators(self.entity_performance_calculators)
-            if self.rc:
-                self._reset_calculators(self.rc_performance_calculators)
+    def _save_inference_output(self):
+        epoch_num = self._extract_epoch()
+        
+        save_json(self.validation_performance, path.join(self.logger.log_dir, f'performance_epoch{epoch_num}.json'))
+        torch.save(self.validation_details, path.join(self.logger.log_dir,f'validation_details{epoch_num}.save'))
+
+    def _reset_all_calculators(self):
+        # resetting calculators
+        if self.task in ['ner', 'e2e']:
+            self._reset_calculators(self.ner_performance_calculators)
+        if self.task in ['cluster', 'e2e']:
+            self._reset_calculators(self.coref_performance_calculators)
+            self._reset_calculators(self.entity_performance_calculators)
+        if self.task in ['rc', 'e2e']:
+            self._reset_calculators(self.rc_performance_calculators)
+
+    def on_validation_end(self):
+        # if self.current_epoch > -1:
+        # obtain and save performance
+        performance = self._get_performance()
+        self._update_performance(performance)
+        # self.validation_performance.append(performance)
+
+        print(self.validation_performance)
+        
+        self._save_inference_output()
+        self._reset_all_calculators()
 
     def configure_optimizers(self):
         print('configuring optimizers')
         lm_optimizer = {'params': self.lm.parameters(), 'lr': self.lm_learning_rate}
-        ner_optimizer = {'params': self.ner.parameters(), 'lr': self.learning_rate}
-        cluster_optimizer = {'params': self.clusterer.parameters(), 'lr': self.learning_rate}
-        rc_optimizer = {'params': self.rc.parameters(), 'lr': self.learning_rate}
         
-        return AdamW([lm_optimizer, ner_optimizer, cluster_optimizer, rc_optimizer])
+        optimizer_components = [lm_optimizer]
+
+        if self.task in ['ner', 'e2e']:
+            ner_optimizer = {'params': self.ner.parameters(), 'lr': self.learning_rate}
+            optimizer_components.append(ner_optimizer)
+        if self.task in ['cluster', 'e2e']:
+            cluster_optimizer = {'params': self.clusterer.parameters(), 'lr': self.learning_rate}
+            optimizer_components.append(cluster_optimizer)
+        if self.task in ['rc', 'e2e']:
+            rc_optimizer = {'params': self.rc.parameters(), 'lr': self.learning_rate}
+            optimizer_components.append(rc_optimizer)
+
+        
+        return AdamW(optimizer_components)
 
     def on_train_start(self):
         self.train_loss = []
@@ -491,39 +599,6 @@ class ELRELightningModule(LightningModule):
         self.train_loss.append(0)
 
 
-
-
-    # def on_validation_epoch_start(self, trainer, pl_module, outputs):
-    #     print('called on_train_epoch_end!')
-    #     # Get the logger's save directory
-    #     logger = trainer.logger
-    #     dirpath = logger.save_dir
-
-    #     # Get the version (experiment name or version number) from the logger
-    #     version = trainer.logger.version if logger is not None else 'version_0'
-
-    #     # Construct the checkpoint path
-    #     filepath = f"{dirpath}/{version}/checkpoints"
-    #     filename = f'checkpoint-epoch={trainer.current_epoch}.ckpt'
-    #     checkpoint_path = os.path.join(filepath, filename)
-
-    #     # Save the checkpoint
-    #     trainer.save_checkpoint(checkpoint_path)
-
-
-
-
-    # def on_train_epoch_end(self):
-    #     # print('\n USING ON_TRAIN_EPOCH_END \n')
-
-    #     print(self.train_loss)
-
-
-
-    # def on_fit_end(self):
-    #     torch.save(self.validation_details, path.join(self.logger.save_dir, 'validation_details.save'))
     
-    # def on_validation_end(self):
-    #     torch.save(self.validation_details, path.join(self.logger.save_dir, 'validation_details.save'))
 
-    
+# %%
