@@ -151,12 +151,6 @@ class SpanUtils:
         id_list = id_string.split(',')
         return id_list
 
-
-
-
-
-
-
     @staticmethod
     def get_subword_indices(span):
         span._.subword_indices = (span[0]._.subword_indices[0], span[-1]._.subword_indices[1])
@@ -176,21 +170,18 @@ class SpanUtils:
         return subspans
     
     @staticmethod
-    def high_shift_subspans(span):
+    def subspans(span):
         subspans = set()
-        for start in range(span.start, span.end - 1):
-            for end in range(start + 1, span.end):
-                subspan = span[start:end]
-                SpanUtils.get_subword_indices(subspan)
-                subspans.add(subspan)
+        # for start in range(span.start, span.end - 1):
+        #     for end in range(start + 1, span.end):
+        for start in range(len(span)):
+            for end in range(start + 1, len(span) + 1):
+                if  not(start == 0 and end == len(span)):
+                    subspan = span[start:end]
+                    SpanUtils.get_subword_indices(subspan)
+                    subspans.add(subspan)
 
-        keep_subspans = subspans - SpanUtils.one_shift_subspans
-        return keep_subspans
-
-    
-
-
-
+        return subspans
     
     @staticmethod
     def superspans(span, doc):
@@ -212,6 +203,10 @@ class SpanUtils:
             if token.pos_ in ['NOUN', 'PROPN']:
                 return True
         return False
+    
+    @staticmethod
+    def has_no_subwords(span):
+        return span._.subword_indices[0] == span._.subword_indices[1]
 
     @staticmethod
     def serialize_spans(obj, attr):
@@ -575,21 +570,6 @@ class Example:
         
     def _get_doc(self):
         self.doc = self.parent_dataset.nlp(self.text)
-        
-#     def _get_character_word_index_converters(self):
-#         self.start_character2word = dict()
-#         self.end_character2word = dict()
-# # 
-# #         self.word2character = dict()
-# # 
-#         
-#         for el in self.doc.tokens:
-#             start_character_index = el.idx
-#             end_character_index = start_character_index + len(el)
-#             word_index = el.i
-#             
-#             self.start_character2word[start_character_index] = word_index
-#             self.end_character2word[end_character_index] = word_index + 1
     
     def _get_sentence_indices(self):
         for i, sentence in enumerate(self.doc.sents):
@@ -597,12 +577,6 @@ class Example:
                 token._.sentence_index = i
 
     def _get_mention(self, annotation):
-# =============================================================================
-#         start_character_index, end_character_index = annotation['offsets'][0]
-#         start_word = self.start_character2word[start_character_index]
-#         end_word = self.end_character2word[end_character_index]
-#         span = self.doc[start_word:end_word]
-# =============================================================================
         start_char_index, end_char_index = SpanUtils.char_indices(annotation)
         type_ = SpanUtils.type(annotation)
         mention = self.doc.char_span(start_char_index, end_char_index, label = type_)
@@ -622,23 +596,6 @@ class Example:
                 if mention:
                     self.doc._.mentions.add(mention)
                 self.eval_mentions.append(eval_mention)
-        
-# =============================================================================
-#     def _get_entities(self):
-#         entity_dict = default_dict(set)
-#         for el in self.annotation['entities']:
-#             if len(el.offsets) == 1: # removes discontinuous mentions
-#                 span = self._get_span(el)
-#                 entity_dict[span._.id].add(span)
-#         for id_, entity in entity_dict.items():
-#             type_ = list(entity)[0]._.type
-#             entity_dict[id_] = SpanGroup(self.doc, 
-#                                          name = id_, 
-#                                          attrs = {'id': id_, 'type': type_},
-#                                          spans = entity
-#                                          )
-#         self.doc.spans = entity_dict
-# =============================================================================
     
     def _get_train_entities(self):
         entity_dict = defaultdict(set)
@@ -716,43 +673,60 @@ class Example:
                 
     # for NER training            
     def _subspans(self):
+        
+        one_shift_subspans = set()
+        for el in self.doc._.mentions:
+            one_shift_subspans.update(SpanUtils.one_shift_subspans(el))
+              
         subspans = set()
         for el in self.doc._.mentions:
             subspans.update(SpanUtils.subspans(el))
-        # for entity in self.doc.spans.values():
-        #     subspan_list = [SpanUtils.subspans(span) for span in entity]
-        #     subspans.update(set.union(*subspan_list))                
-                    
-        return subspans
+        multi_shift_subspans = subspans - one_shift_subspans
+        
+
+        short_negative_spans = set()
+        for start in range(len(self.doc) - 2):
+            for end in (start + 1, start + 2):
+                subspan = self.doc[start:end]
+                SpanUtils.get_subword_indices(subspan)
+                short_negative_spans.add(subspan)
+
+        return one_shift_subspans, multi_shift_subspans, short_negative_spans
     
     def _superspans(self):
         superspans = set()
         for el in self.doc._.mentions:
             superspans.update(SpanUtils.superspans(el, self.doc))
-
+        
         # for entity in self.doc.spans.values():
         #     superspan_list = [SpanUtils.superspans(span, self.doc) for span in entity]
         #     superspans.update(set.union(*superspan_list))           
                                 
         return superspans
     
+    def _filter_mentions(self, candidate_negative_spans):
+        mentions = [(el.start, el.end) for el in self.doc._.mentions]
+        return set(el for el in candidate_negative_spans if (el.start, el.end) not in mentions) 
+
     def negative_spans(self):
-        for i, el in enumerate(self.doc):
-            if not el._.subword_indices:
-                print(el)
         
-        other_spans = self._subspans() | self._superspans()
-        
-        negative_spans = set()
-        for el_other in other_spans:
-            for el_mention in self.doc._.mentions:
-                if el_other.start == el_mention.start and el_other.end == el_mention.end:
-                    break
-            else:
-                negative_spans.add(el_other)
-                
-        # return negative_spans
-        return negative_spans
+        one_shift_subspans, multi_shift_subspans, short_negative_spans = self._subspans()
+        superspans = self._superspans()
+
+        one_shift_subspans = self._filter_mentions(one_shift_subspans)
+        multi_shift_subspans = self._filter_mentions(multi_shift_subspans)
+        short_negative_spans = self._filter_mentions(short_negative_spans)
+        superspans = self._filter_mentions(superspans)
+
+        one_shift_spans = one_shift_subspans | superspans
+        multi_shift_subspans -= one_shift_spans
+        short_negative_spans -= one_shift_spans | multi_shift_subspans
+
+        short_negative_spans = set(el for el in short_negative_spans if not SpanUtils.has_no_subwords(el))
+        multi_shift_subspans = set(el for el in multi_shift_subspans if not SpanUtils.has_no_subwords(el))
+        short_negative_spans = set(el for el in short_negative_spans if not SpanUtils.has_no_subwords(el))
+
+        return one_shift_spans, multi_shift_subspans, short_negative_spans
     
     # for NER inference
     def candidate_spans(self):
@@ -764,7 +738,7 @@ class Example:
                 for end in range(start + 1, sentence.end):
                     span = self.doc[start:end]
                     SpanUtils.get_subword_indices(span)
-                    if (span.start, span.end) not in mention_indices:
+                    if not SpanUtils.has_no_subwords(span) and (span.start, span.end) not in mention_indices:
                         candidate_spans.add(span)
             
         return candidate_spans

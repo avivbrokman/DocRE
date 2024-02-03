@@ -174,8 +174,11 @@ model:
     # - UntypedLocationRelaxedRCScorer
     # - UntypedStringRelaxedRCScorer
   calculator_class: Calculator
-  neg_to_pos_span_ratio: 3
+  neg_to_pos_span_ratio: 5
   neg_to_pos_span_pair_ratio: 3
+  span_sampling_probs:
+    multi_shift: 0.5
+    short: 0.5
   max_span_length: 10
 
 # data config

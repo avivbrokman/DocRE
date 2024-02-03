@@ -4,7 +4,8 @@
 # cd .
 
 # Directory containing checkpoint files
-CHECKPOINT_DIR="lightning_logs/version_261/checkpoints"
+#CHECKPOINT_DIR="lightning_logs/version_261/checkpoints"
+CHECKPOINT_DIR="lightning_logs/version_292/checkpoints"
 
 # Loop through each checkpoint file
 for CHECKPOINT_PATH in ${CHECKPOINT_DIR}/epoch=*.ckpt; do

@@ -29,7 +29,7 @@ class ELRELightningModule(LightningModule):
                  lm_learning_rate, learning_rate, 
                  ner_scorer_classes, coref_scorer_classes, entity_scorer_classes, rc_scorer_classes, 
                  calculator_class, 
-                 neg_to_pos_span_ratio, neg_to_pos_span_pair_ratio, 
+                 neg_to_pos_span_ratio, neg_to_pos_span_pair_ratio, span_sampling_probs, 
                  max_span_length):
         super().__init__()
         self.save_hyperparameters()
@@ -77,6 +77,8 @@ class ELRELightningModule(LightningModule):
         # settings for sampling negative examples
         if self.task in ['ner', 'e2e']:
             self.neg_to_pos_span_ratio = neg_to_pos_span_ratio
+            self.multi_shift_prob = span_sampling_probs['multi_shift']
+            self.short_prob = span_sampling_probs['short']
         if self.task in ['cluster', 'e2e']:
             self.neg_to_pos_span_pair_ratio = neg_to_pos_span_pair_ratio
 
@@ -234,26 +236,59 @@ class ELRELightningModule(LightningModule):
         # print('finished LM')
         return token_embeddings
 
-    def subsampler(self, positives, negatives, neg_to_pos_ratio):
-        num_pos = len(positives)
-        num_neg = len(negatives)
+    # def subsampler(self, positives, negatives, neg_to_pos_ratio):
+                
+    #     num_pos = len(positives)
+    #     num_neg = len(negatives)
 
-        num_neg_desired = neg_to_pos_ratio * num_pos
+    #     num_neg_desired = neg_to_pos_ratio * num_pos
+    #     num_neg_desired = int(num_neg_desired)
+    #     num_neg_desired = min(num_neg_desired, num_neg)
+
+    #     negative_sample = sample(list(negatives), num_neg_desired)
+
+    #     return set(positives) | set(negative_sample)
+
+    
+    def subsampler(self, positives, negatives):
+        
+        num_pos = len(positives)
+        num_neg = sum([len(el) for el in negatives])
+
+        num_neg_desired = self.neg_to_pos_span_ratio * num_pos
         num_neg_desired = int(num_neg_desired)
         num_neg_desired = min(num_neg_desired, num_neg)
 
+        one_shift_spans, multi_shift_subspans, short_spans = negatives
 
-        negative_sample = sample(list(negatives), num_neg_desired)
+        num_leftover_neg_desired = max((num_neg_desired - len(one_shift_spans), 0))
+        num_multi_shift_desired = int(self.multi_shift_prob * num_leftover_neg_desired)
+        num_short_desired = int(self.short_prob * num_leftover_neg_desired)
 
-        return set(positives) | set(negative_sample)
+        num_one_shift_available = len(one_shift_spans)    
+        num_multi_shift_available = len(multi_shift_subspans)
+        num_short_available = len(short_spans)
+        
+        if num_one_shift_available > num_neg_desired:
+            one_shift_sample = sample(one_shift_spans, num_neg_desired)
+        else:
+            one_shift_sample = one_shift_spans
+
+        if num_multi_shift_available > num_multi_shift_desired:
+            multi_shift_sample = sample(list(multi_shift_subspans), num_multi_shift_desired)
+        elif num_multi_shift_available == num_multi_shift_desired:
+            multi_shift_sample = multi_shift_subspans
+        elif num_multi_shift_available < num_multi_shift_desired:
+            multi_shift_sample = multi_shift_subspans
+            num_short_desired += (num_multi_shift_desired - num_multi_shift_available)
+        
+        short_sample = sample(list(short_spans), num_short_desired)
+
+        return set(positives) | set(one_shift_sample) | set(multi_shift_sample) | set(short_sample)
 
     def ner_training_step(self, example, token_embeddings):
         # print('NER training step')
-        for i, el in enumerate(example.doc):
-            if not el._.subword_indices:
-                print(el)
-        # candidate_spans = list(example.mentions | example.negative_spans)
-        candidate_spans = self.subsampler(example.doc._.mentions, example.negative_spans(), self.neg_to_pos_span_ratio)
+        candidate_spans = self.subsampler(example.doc._.mentions, example.negative_spans())
 
         if candidate_spans:
 
@@ -361,7 +396,6 @@ class ELRELightningModule(LightningModule):
             return predicted_relations
         else:
             return set()
-
 
     def training_step(self, example, example_index):
 
@@ -481,15 +515,12 @@ class ELRELightningModule(LightningModule):
         else:
             self.validation_details[-1].append(details) # non-1st epoch
 
-
-
     def validation_step(self, example, example_index):
         # if self.current_epoch < -1: #50:
         details = self.inference_step(example, example_index)
         
         self._update_details(details)
         # self.validation_details[-1].append(details)
-
 
     def test_step(self, example, example_index):
         details = self.inference_step(example, example_index)
