@@ -132,18 +132,18 @@ class RelaxedScorer(MulticlassScorer):
     def _predicted_entity_in_gold(self, predicted_entity, is_typed):
         for el in self.gold:
             if is_typed:
-                if not self._equal_type(predicted_entity, el):
-                    return False
+                if self._entity_equality(predicted_entity, el) and self._equal_type(predicted_entity, el):
+                    return el
             else:
-                if self._cluster_equality(predicted_entity, el):
+                if self._entity_equality(predicted_entity, el):
                     return el
         return False
 
     def _predicted_relation_in_gold(self, predicted_relation, is_typed):
         for el in self.gold:
             if is_typed:
-                if not self._equal_type(predicted_relation, el):
-                    return False
+                if self._relation_equality(predicted_relation, el) and self._equal_type(predicted_relation, el):
+                    return el
             else:
                 if self._relation_equality(predicted_relation, el):
                     return el
@@ -174,7 +174,7 @@ class RelaxedScorer(MulticlassScorer):
                     self.TP_objects.add(el)
             else:
                 self.FP_objects.add(el)
-                self.FP += 1 
+                self.FP += 1
         
         self.FN_objects = self.gold - extracted_golds
         self.FN = len(self.FN_objects)
@@ -226,9 +226,10 @@ class TypedLocationNERScorer(MulticlassScorer):
 
 #%% Coref scorer
 @dataclass
-class TypedLocationCorefScorer(MulticlassScorer):
+class TypedLocationCorefScorer(UniclassScorer):
+    
     def __post_init__(self):
-        self.gold = set(self.gold)
+        self.gold = self.get_eval_objects(self.gold)
         self.predicted = self.get_eval_objects(self.predicted)
         self.score()
 

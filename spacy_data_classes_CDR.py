@@ -13,266 +13,27 @@ import spacy
 from spacy.util import compile_infix_regex, compile_suffix_regex, compile_prefix_regex
 from spacy.vocab import Vocab
 
-from spacy.tokens import Token, Span, SpanGroup, Doc
 
+from general_spacy_data_classes import Token, Span, SpanGroup, Doc, TokenizerModification, SpanUtils
 from utils import unlist, mode, parentless_print, make_dir
 
 
-#%% modify tokenizer
-@dataclass
-class TokenizerModification:
-    regex: str
-    action: str
-    fix_type: str
-
-
-    @staticmethod
-    def modify(nlp, modifications):
-
-        fix_dict = {'prefix': nlp.Defaults.prefixes,
-                    'infix': nlp.Defaults.infixes,
-                    'suffix': nlp.Defaults.suffixes
-                    }
-        for el in modifications:
-            fix_list = fix_dict[el.fix_type]
-            if el.action == 'add' and el.regex not in fix_list:
-                fix_list.append(el.regex)
-            elif el.action == 'remove' and el.regex in fix_list:
-                fix_list.remove(el.regex)
-
-
-        prefix_regex = compile_prefix_regex(fix_dict['prefix'])
-        infix_regex = compile_infix_regex(fix_dict['infix'])
-        suffix_regex = compile_suffix_regex(fix_dict['suffix'])
-
-        nlp.tokenizer.prefix_search = prefix_regex.search
-        nlp.tokenizer.infix_finditer = infix_regex.finditer
-        nlp.tokenizer.suffix_search = suffix_regex.search
-
-        return nlp
-
-    @staticmethod
-    def remove_final_period_special_rules(nlp):
-        pattern = re.compile(r'^\w\.$')
-        
-        # Remove special cases that are single letters followed by a period
-        keys_to_remove = [key for key in nlp.tokenizer.rules.keys() if pattern.match(key)]
-        for key in keys_to_remove:
-            del nlp.tokenizer.rules[key]
-
-        return nlp
-
- 
-#%%
-# def tokenize_on_special_characters(nlp, special_characters):
-#     # Get the default infix patterns from the tokenizer
-#     infixes = nlp.Defaults.infixes
-
-#     # Add custom infix patterns for the provided special characters
-#     custom_infixes = [re.escape(char) for char in special_characters]
-#     infixes = infixes + custom_infixes
-
-#     # Compile new infix regex
-#     infix_regex = compile_infix_regex(infixes)
-
-#     # Create a new tokenizer with the custom infix pattern
-#     nlp.tokenizer = Tokenizer(nlp.vocab, 
-#                               prefix_search = nlp.tokenizer.prefix_search,
-#                               suffix_search = nlp.tokenizer.suffix_search,
-#                               infix_finditer = infix_regex.finditer,
-#                               token_match = nlp.tokenizer.token_match)
-
-#     return nlp
-
-# def tokenize_on_final_periods(nlp):
-#     # Get the default suffixes from the language defaults
-#     suffixes = list(nlp.Defaults.suffixes)
-
-#     # Add a pattern to match a period at the end of a word
-#     # The pattern uses a positive lookbehind assertion to ensure the period is preceded by a non-whitespace character
-#     period_suffix = r'(?<=[^\s])\.' r'\.(?=\s)'
-#     if period_suffix not in suffixes:
-#         suffixes.append(period_suffix)
-
-#     # Compile the new suffix regex
-#     suffix_regex = compile_suffix_regex(suffixes)
-
-#     # Update the tokenizer with the new suffix search
-#     nlp.tokenizer.suffix_search = suffix_regex.search
-
-#     return nlp
-
-# def remove_bar_tokenization(nlp):
-#     # Get the default infix patterns and remove the one that splits at vertical bars
-#     # current_infixes = nlp.Defaults.infixes
-#     current_infixes = nlp.tokenizer.infix_finditer.pattern
-#     infixes = [pattern for pattern in current_infixes if pattern != r'\|']
-#     # Compile new infix regex
-#     infix_regex = compile_infix_regex(infixes)
-
-#     # Update the tokenizer with the new infix rule
-#     nlp.tokenizer.infix_finditer = infix_regex.finditer
-
-#     return nlp
-
-
-
-#%% Modifying Spacy structures
-Token.set_extension("subwords", default = None)
-Token.set_extension("subword_indices", default = None)
-Token.set_extension("sentence_index", default = None)
-
-Span.set_extension("id", default = list())
-# Span.set_extension("sentence_index", default = None)
-Span.set_extension("subword_indices", default = None)
-
-Doc.set_extension("mentions", default = set())
-Doc.set_extension("relations", default = set())
-
 #%% SpanUtils
-class SpanUtils:
-    
-    #!!!!!!! But actually just add this in to master script
-    @staticmethod
-    def is_discontinuous(annotation):
-        return len(annotation['offsets']) > 1
-    #!!!!!!
-
-    @staticmethod
-    def char_indices(annotation):
-        start_char_index, end_char_index = annotation['offsets'][0]
-        return start_char_index, end_char_index
-
-    @staticmethod
-    def text(annotation):
-        return annotation['text'][0]    
-    
-    #!!!!!!!!!!!!
-    @staticmethod
-    def type(annotation):
-        return annotation['type']
-    
-    @staticmethod
-    def id(annotation):
-        ids_list = annotation['normalized']
-        ids = [el['db_id'] for el in ids_list]
-        ids = list(set(ids))
-
-        return ids
-    #!!!!!!!!!
-
-
-
-
-
-
-
-    @staticmethod
-    def get_subword_indices(span):
-        span._.subword_indices = (span[0]._.subword_indices[0], span[-1]._.subword_indices[1])
-    
-    @staticmethod
-    def subspans(span):
-        subspans = set()
-        left_subspan = span[1:]
-        right_subspan = span[:-1]
-        if left_subspan:
-            SpanUtils.get_subword_indices(left_subspan)
-            subspans.add(left_subspan)
-        if right_subspan:
-            SpanUtils.get_subword_indices(right_subspan)
-            subspans.add(right_subspan)
-
-        return subspans
-    
-    @staticmethod
-    def superspans(span, doc):
-        superspans = set()
-        if span.start != span.sent.start:
-            left_superspan = doc[(span.start - 1):span.end]
-            SpanUtils.get_subword_indices(left_superspan)
-            superspans.add(left_superspan)
-        if span.end != span.sent.end:
-            right_superspan = doc[span.start:(span.end + 1)]
-            SpanUtils.get_subword_indices(right_superspan)
-            superspans.add(right_superspan)
-
-        return superspans
-    
-    @staticmethod
-    def has_noun(span):
-        for token in span:
-            if token.pos_ in ['NOUN', 'PROPN']:
-                return True
-        return False
-
-    @staticmethod
-    def serialize_spans(obj, attr):
-        return [(span.start_char, span.end_char, span.label_) for span in getattr(obj, attr)]
-    
-    @staticmethod
-    def deserialize_spans(obj, attr, value):
-        setattr(obj, attr, [obj.char_span(start, end, label = label) for start, end, label in value])
-
-#%% Saving utils
-class SaveUtils:
-
-    @staticmethod
-    def Span2tuple(span):
-        return (span.start_char, span.end_char, span.label_, span.id)
-
-    @staticmethod
-    def move_mentions_to_example(example):
-        example.mentions = set(SaveUtils.Span2tuple(el) for el in example.doc._.mentions)
-        example.doc._.mentions = None
-    
-    @staticmethod
-    def tuple2Span(span_tuple, example):
-        span = example.doc.char_span(span_tuple[0], span_tuple[1], label = span_tuple[2])
-        span.id = span_tuple[4]
-        return span
-    
-    @staticmethod
-    def move_mentions_to_doc(example):
-        example.doc._.mentions = set(SaveUtils.tuple2Span(el, example) for el in example.mentions)
-    
-    @staticmethod
-    def remove_mentions_from_doc(example):
-        example.doc._.mentions = None
-    
-    @staticmethod
-    def span_group2mentions(example):
-        span_groups = [el for el in example.doc.spans.values()]
-        mentions = unlist(span_groups)  
-        example.doc._.mentions = set(mentions)
-
-    @staticmethod
-    def Relation2tuple(relation):
-        return (relation.head.attrs['id'], relation.tail.attrs['id'], relation.type)
-    
-    @staticmethod
-    def move_relations_to_example(example):
-        example.relations = [SaveUtils.Relation2tuple(el) for el in example.doc._.relations]
-        example.doc._.relations = None
-
-    @staticmethod
-    def tuple2Relation(tuple, example):
-        head_id = tuple[0]
-        tail_id = tuple[1]
-        type_ = tuple[2]
-
-        head = example.doc.spans[head_id]
-        tail = example.doc.spans[tail_id]
-        relation = Relation(head, tail, type_)
-        return relation
-    
-    @staticmethod
-    def move_relations_to_doc(example):
-        example.doc._.relations = [SaveUtils.tuple2Relation(el, example) for el in example.relations]
-    
         
+@staticmethod
+def type_fun(annotation):
+    return annotation['type']
 
+@staticmethod
+def id_fun(annotation):
+    ids_list = annotation['normalized']
+    ids = [el['db_id'] for el in ids_list]
+    ids = list(set(ids))
 
+    return ids
+
+SpanUtils.type = type_fun
+SpanUtils.id = id_fun
 
 #%% EvalMention
 @dataclass

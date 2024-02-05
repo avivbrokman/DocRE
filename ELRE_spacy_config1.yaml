@@ -22,7 +22,7 @@ trainer:
 model:
   dataset_name: BioRED
   lm_checkpoint: microsoft/BiomedNLP-BiomedBERT-base-uncased-abstract
-  task: 'rc' # 'ner', 'cluster', 'rc', 'e2e'
+  task: 'ner' # 'ner', 'cluster', 'rc', 'e2e'
   ner_config:
     class: NER
     config:
@@ -137,6 +137,11 @@ model:
         class: MLP1
         config:
           output_dim: 128
+      # prediction_layer:
+      #   class: MLP2
+      #   config: 
+      #     intermediate_dim: 128
+      #     output_dim: {} # to be determined in module
       num_relation_classes: {} # to be filled in lightning module
       is_multilabel: False
       rc_cutoff: 0.5
@@ -169,8 +174,8 @@ model:
     # - UntypedLocationRelaxedRCScorer
     # - UntypedStringRelaxedRCScorer
   calculator_class: Calculator
-  neg_to_pos_span_ratio: 11
-  neg_to_pos_span_pair_ratio: 9
+  neg_to_pos_span_ratio: 14
+  neg_to_pos_span_pair_ratio: 7
   span_sampling_probs:
     multi_shift: 0.5
     short: 0.5

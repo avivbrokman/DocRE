@@ -322,7 +322,6 @@ class EvalSpanPair:
     mention1: EvalMention
     mention2: EvalMention
     coref: int
-    # type: str
 
     def __post_init__(self):
         self.mentions = set([self.mention1, self.mention2])
@@ -338,9 +337,7 @@ class EvalSpanPair:
         mention1 = EvalMention.from_span(span_pair.span1)
         mention2 = EvalMention.from_span(span_pair.span2)
         coref = span_pair.coref
-        # type_ = span_pair.span1.label_
-        
-        # return cls(mention1, mention2, coref, type_)
+
         return cls(mention1, mention2, coref)
     
 #%% EvalEntity
@@ -355,9 +352,6 @@ class EvalEntity:
 
     def __hash__(self):
         return hash((tuple(self.mentions), self.type))    
-
-    def __len__(self):
-        return len(self.mentions)
 
     @classmethod
     def from_entity(cls, entity):

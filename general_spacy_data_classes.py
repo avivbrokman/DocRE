@@ -62,61 +62,6 @@ class TokenizerModification:
 
         return nlp
 
- 
-#%%
-# def tokenize_on_special_characters(nlp, special_characters):
-#     # Get the default infix patterns from the tokenizer
-#     infixes = nlp.Defaults.infixes
-
-#     # Add custom infix patterns for the provided special characters
-#     custom_infixes = [re.escape(char) for char in special_characters]
-#     infixes = infixes + custom_infixes
-
-#     # Compile new infix regex
-#     infix_regex = compile_infix_regex(infixes)
-
-#     # Create a new tokenizer with the custom infix pattern
-#     nlp.tokenizer = Tokenizer(nlp.vocab, 
-#                               prefix_search = nlp.tokenizer.prefix_search,
-#                               suffix_search = nlp.tokenizer.suffix_search,
-#                               infix_finditer = infix_regex.finditer,
-#                               token_match = nlp.tokenizer.token_match)
-
-#     return nlp
-
-# def tokenize_on_final_periods(nlp):
-#     # Get the default suffixes from the language defaults
-#     suffixes = list(nlp.Defaults.suffixes)
-
-#     # Add a pattern to match a period at the end of a word
-#     # The pattern uses a positive lookbehind assertion to ensure the period is preceded by a non-whitespace character
-#     period_suffix = r'(?<=[^\s])\.' r'\.(?=\s)'
-#     if period_suffix not in suffixes:
-#         suffixes.append(period_suffix)
-
-#     # Compile the new suffix regex
-#     suffix_regex = compile_suffix_regex(suffixes)
-
-#     # Update the tokenizer with the new suffix search
-#     nlp.tokenizer.suffix_search = suffix_regex.search
-
-#     return nlp
-
-# def remove_bar_tokenization(nlp):
-#     # Get the default infix patterns and remove the one that splits at vertical bars
-#     # current_infixes = nlp.Defaults.infixes
-#     current_infixes = nlp.tokenizer.infix_finditer.pattern
-#     infixes = [pattern for pattern in current_infixes if pattern != r'\|']
-#     # Compile new infix regex
-#     infix_regex = compile_infix_regex(infixes)
-
-#     # Update the tokenizer with the new infix rule
-#     nlp.tokenizer.infix_finditer = infix_regex.finditer
-
-#     return nlp
-
-
-
 #%% Modifying Spacy structures
 Token.set_extension("subwords", default = None)
 Token.set_extension("subword_indices", default = None)
@@ -131,7 +76,11 @@ Doc.set_extension("relations", default = set())
 
 #%% SpanUtils
 class SpanUtils:
-    
+
+    @staticmethod
+    def is_discontinuous(annotation):
+        return len(annotation['offsets']) > 1
+
     @staticmethod
     def char_indices(annotation):
         start_char_index, end_char_index = annotation['offsets'][0]
@@ -141,15 +90,16 @@ class SpanUtils:
     def text(annotation):
         return annotation['text'][0]    
 
+
     @staticmethod
     def type(annotation):
-        return annotation['semantic_type_id']
+        '''dataset-specific'''
+        return 
     
     @staticmethod
     def id(annotation):
-        id_string = annotation['concept_id']
-        id_list = id_string.split(',')
-        return id_list
+        '''dataset-specific'''
+        return 
 
     @staticmethod
     def get_subword_indices(span):
@@ -322,7 +272,6 @@ class EvalSpanPair:
     mention1: EvalMention
     mention2: EvalMention
     coref: int
-    # type: str
 
     def __post_init__(self):
         self.mentions = set([self.mention1, self.mention2])
@@ -338,9 +287,7 @@ class EvalSpanPair:
         mention1 = EvalMention.from_span(span_pair.span1)
         mention2 = EvalMention.from_span(span_pair.span2)
         coref = span_pair.coref
-        # type_ = span_pair.span1.label_
-        
-        # return cls(mention1, mention2, coref, type_)
+
         return cls(mention1, mention2, coref)
     
 #%% EvalEntity
@@ -355,9 +302,6 @@ class EvalEntity:
 
     def __hash__(self):
         return hash((tuple(self.mentions), self.type))    
-
-    def __len__(self):
-        return len(self.mentions)
 
     @classmethod
     def from_entity(cls, entity):

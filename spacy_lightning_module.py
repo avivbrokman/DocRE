@@ -39,13 +39,15 @@ class ELRELightningModule(LightningModule):
         # gets type converters
         self.entity_type_converter = torch.load(path.join('data', 'processed', dataset_name, lm_checkpoint, 'entity_class_converter.save'))
         
-        if self.task in ['rc', 'e2e']:
-            self.relation_type_converter = torch.load(path.join('data', 'processed', dataset_name, lm_checkpoint, 'relation_class_converter.save'))
+        # if self.task in ['rc', 'e2e']:
+        #     self.relation_type_converter = torch.load(path.join('data', 'processed', dataset_name, lm_checkpoint, 'relation_class_converter.save'))
+
+        self.relation_type_converter = torch.load(path.join('data', 'processed', dataset_name, lm_checkpoint, 'relation_class_converter.save'))
 
         # dynamically add number of classes to modeling configs so the user doesn't need to specify them
         if self.task in ['ner', 'e2e']:
             ner_config['config']['num_entity_classes'] = len(self.entity_type_converter)
-        if self.task in ['rc, e2e']:
+        if self.task in ['rc', 'e2e']:
             rc_config['config']['num_relation_classes'] = len(self.relation_type_converter)
             
             # if the task is multilabel, there should be no null class classifier, so remove one from the number of relation classes
@@ -122,7 +124,8 @@ class ELRELightningModule(LightningModule):
         self.dataset_name = dataset_name
         
         # sets evaluation maximum candidate span length
-        self.max_span_length = max_span_length
+        if self.task in ['ner', 'e2e']:
+            self.max_span_length = max_span_length
 
         # creates lists for storage of details of results
         # self.validation_details = list()
@@ -162,7 +165,6 @@ class ELRELightningModule(LightningModule):
             checkpoint['clusterer_config'] = self.clusterer_config
         if self.task in ['rc', 'e2e']:
             checkpoint['rc_config'] = self.rc_config
-
 
     def _replace_string_with_def(self, class_info, key_name, module_names):
 
@@ -236,21 +238,20 @@ class ELRELightningModule(LightningModule):
         # print('finished LM')
         return token_embeddings
 
-    # def subsampler(self, positives, negatives, neg_to_pos_ratio):
+    def coref_subsampler(self, positives, negatives, neg_to_pos_ratio):
                 
-    #     num_pos = len(positives)
-    #     num_neg = len(negatives)
+        num_pos = len(positives)
+        num_neg = len(negatives)
 
-    #     num_neg_desired = neg_to_pos_ratio * num_pos
-    #     num_neg_desired = int(num_neg_desired)
-    #     num_neg_desired = min(num_neg_desired, num_neg)
+        num_neg_desired = neg_to_pos_ratio * num_pos
+        num_neg_desired = int(num_neg_desired)
+        num_neg_desired = min(num_neg_desired, num_neg)
 
-    #     negative_sample = sample(list(negatives), num_neg_desired)
+        negative_sample = sample(list(negatives), num_neg_desired)
 
-    #     return set(positives) | set(negative_sample)
+        return set(positives) | set(negative_sample)
 
-    
-    def subsampler(self, positives, negatives):
+    def ner_subsampler(self, positives, negatives):
         
         num_pos = len(positives)
         num_neg = sum([len(el) for el in negatives])
@@ -288,7 +289,7 @@ class ELRELightningModule(LightningModule):
 
     def ner_training_step(self, example, token_embeddings):
         # print('NER training step')
-        candidate_spans = self.subsampler(example.doc._.mentions, example.negative_spans())
+        candidate_spans = self.ner_subsampler(example.doc._.mentions, example.negative_spans())
 
         if candidate_spans:
 
@@ -323,7 +324,7 @@ class ELRELightningModule(LightningModule):
         
         # candidate_span_pairs = example.positive_span_pairs + example.negative_span_pairs
 
-        candidate_span_pairs = self.subsampler(example.positive_span_pairs(), example.negative_span_pairs(), self.neg_to_pos_span_pair_ratio)
+        candidate_span_pairs = self.coref_subsampler(example.positive_span_pairs(), example.negative_span_pairs(), self.neg_to_pos_span_pair_ratio)
         candidate_span_pairs = list(candidate_span_pairs)
 
 
@@ -437,7 +438,7 @@ class ELRELightningModule(LightningModule):
 
         elif self.task == 'cluster':
             candidate_span_pairs = example.positive_span_pairs() + example.negative_span_pairs()
-            predicted_coreferences, predicted_entities = self.cluster_inference_step(candidate_span_pairs, example.doc._.mentions, token_embeddings)
+            predicted_coreferences, predicted_entities = self.cluster_inference_step(candidate_span_pairs, example.doc._.mentions, token_embeddings, example.doc)
 
         # rc     
         if self.task == 'e2e':
@@ -469,7 +470,7 @@ class ELRELightningModule(LightningModule):
                 
                 class_name = el.__name__
                 coref_scorers[class_name] = scorer
-                self.coref_performance_calculators[class_name].update(**counts)
+                self.coref_performance_calculators[class_name].update(counts)
             entity_scorers = dict()
             for el in self.entity_scorer_classes:
                 scorer = el(predicted_entities, example.eval_entities)

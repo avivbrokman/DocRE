@@ -53,7 +53,7 @@
                     "PYDEVD_WARN_EVALUATION_TIMEOUT": "500"} 
         },
         {
-            "name": "BioRED validation",
+            "name": "BioRED NER validation",
             "type": "python",
             "request": "launch",
             "program": "spacy_main.py",
@@ -63,13 +63,13 @@
             "env": {"CUDA_LAUNCH_BLOCKING": "1"}
         },
         {
-            "name": "BioRED NER validation",
+            "name": "BioRED cluster validation",
             "type": "python",
             "request": "launch",
             "program": "spacy_main.py",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["validate", "--config", "ELRE_spacy_config.yaml", "--ckpt_path", "lightning_logs/version_261/checkpoints/epoch=14-step=6000.ckpt"],
+            "args": ["validate", "--config", "ELRE_spacy_config.yaml", "--ckpt_path", "lightning_logs/version_296/checkpoints/epoch=14-step=6000.ckpt"],
             "env": {"CUDA_LAUNCH_BLOCKING": "1"}
         },
         {
