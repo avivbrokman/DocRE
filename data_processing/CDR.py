@@ -202,11 +202,11 @@ relation_types = full_data.get_relation_types()
 
 # processes all datasets
 print('\n train dataset \n')
-train_data = Dataset(train_data, nlp, tokenizer, deepcopy(entity_types), deepcopy(relation_types))
+train_data = Dataset(train_data, nlp, tokenizer, entity_types, relation_types)
 print('\n validation dataset \n')
-validation_data = Dataset(validation_data, nlp, tokenizer, deepcopy(entity_types), deepcopy(relation_types))
+validation_data = Dataset(validation_data, nlp, tokenizer, entity_types, relation_types)
 print('\n test dataset \n')
-test_data = Dataset(test_data, nlp, tokenizer, deepcopy(entity_types), deepcopy(relation_types))
+test_data = Dataset(test_data, nlp, tokenizer, entity_types, relation_types)
 # print('parsing train + validation dataset')
 # train_validation_data = Dataset(train_validation_data, nlp, tokenizer, entity_types, relation_types)
 

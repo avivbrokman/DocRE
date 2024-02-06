@@ -15,15 +15,12 @@ from spacy_data_classes import Dataset, TokenizerModification
 
 
 #%% processing
+
+dataset_name = 'BioRED'
+
 # tokenizer
 checkpoint = 'microsoft/BiomedNLP-BiomedBERT-base-uncased-abstract'
 tokenizer = AutoTokenizer.from_pretrained(checkpoint)
-
-
-# make data paths and directories
-output_data_path = path.join('BioRED', checkpoint)
-
-make_dir(output_data_path)
 
 # spacy model
 nlp = spacy.load("en_core_sci_lg")
@@ -120,14 +117,16 @@ full_data = Dataset(full_data, nlp, tokenizer)
 entity_types = full_data.get_entity_types()
 relation_types = full_data.get_relation_types()
 
+relation_types = ['Positive_Correlation', 'Negative_Correlation', 'Association']
+
 
 # processes all datasets
 print('\n train dataset \n')
-train_data = Dataset(train_data, nlp, tokenizer, deepcopy(entity_types), deepcopy(relation_types))
+train_data = Dataset(train_data, nlp, tokenizer, entity_types, relation_types)
 print('\n validation dataset \n')
-validation_data = Dataset(validation_data, nlp, tokenizer, deepcopy(entity_types), deepcopy(relation_types))
+validation_data = Dataset(validation_data, nlp, tokenizer, entity_types, relation_types)
 print('\n test dataset \n')
-test_data = Dataset(test_data, nlp, tokenizer, deepcopy(entity_types), deepcopy(relation_types))
+test_data = Dataset(test_data, nlp, tokenizer, entity_types, relation_types)
 # print('parsing train + validation dataset')
 # train_validation_data = Dataset(train_validation_data, nlp, tokenizer, entity_types, relation_types)
 
@@ -145,15 +144,13 @@ entity_class_converter = train_data.entity_class_converter
 relation_class_converter = train_data.relation_class_converter
 
 # Saves everything
-torch.save(entity_types, path.join('data', 'processed', output_data_path,'entity_types.save'))
-torch.save(relation_types, path.join('data', 'processed', output_data_path,'relation_types.save'))
-torch.save(entity_class_converter, path.join('data', 'processed', output_data_path,'entity_class_converter.save'))
-torch.save(relation_class_converter, path.join('data', 'processed', output_data_path,'relation_class_converter.save'))
-Dataset.save_nlp(nlp, 'BioRED')
 
-train_data.save(output_data_path, 'train')
-validation_data.save(output_data_path, 'validation')
-test_data.save(output_data_path, 'test')
+train_data.save_class_types_and_converters(dataset_name)
+Dataset.save_nlp(nlp, dataset_name)
+
+train_data.save(dataset_name, checkpoint, 'train')
+validation_data.save(dataset_name, checkpoint, 'validation')
+test_data.save(dataset_name, checkpoint, 'test')
 # train_validation_data.save(output_data_path, 'train_validation')
 
 

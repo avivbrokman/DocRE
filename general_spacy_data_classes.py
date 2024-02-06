@@ -12,6 +12,7 @@ import torch
 import spacy
 from spacy.util import compile_infix_regex, compile_suffix_regex, compile_prefix_regex
 from spacy.vocab import Vocab
+from copy import deepcopy
 
 from spacy.tokens import Token, Span, SpanGroup, Doc
 
@@ -62,6 +63,61 @@ class TokenizerModification:
 
         return nlp
 
+ 
+#%%
+# def tokenize_on_special_characters(nlp, special_characters):
+#     # Get the default infix patterns from the tokenizer
+#     infixes = nlp.Defaults.infixes
+
+#     # Add custom infix patterns for the provided special characters
+#     custom_infixes = [re.escape(char) for char in special_characters]
+#     infixes = infixes + custom_infixes
+
+#     # Compile new infix regex
+#     infix_regex = compile_infix_regex(infixes)
+
+#     # Create a new tokenizer with the custom infix pattern
+#     nlp.tokenizer = Tokenizer(nlp.vocab, 
+#                               prefix_search = nlp.tokenizer.prefix_search,
+#                               suffix_search = nlp.tokenizer.suffix_search,
+#                               infix_finditer = infix_regex.finditer,
+#                               token_match = nlp.tokenizer.token_match)
+
+#     return nlp
+
+# def tokenize_on_final_periods(nlp):
+#     # Get the default suffixes from the language defaults
+#     suffixes = list(nlp.Defaults.suffixes)
+
+#     # Add a pattern to match a period at the end of a word
+#     # The pattern uses a positive lookbehind assertion to ensure the period is preceded by a non-whitespace character
+#     period_suffix = r'(?<=[^\s])\.' r'\.(?=\s)'
+#     if period_suffix not in suffixes:
+#         suffixes.append(period_suffix)
+
+#     # Compile the new suffix regex
+#     suffix_regex = compile_suffix_regex(suffixes)
+
+#     # Update the tokenizer with the new suffix search
+#     nlp.tokenizer.suffix_search = suffix_regex.search
+
+#     return nlp
+
+# def remove_bar_tokenization(nlp):
+#     # Get the default infix patterns and remove the one that splits at vertical bars
+#     # current_infixes = nlp.Defaults.infixes
+#     current_infixes = nlp.tokenizer.infix_finditer.pattern
+#     infixes = [pattern for pattern in current_infixes if pattern != r'\|']
+#     # Compile new infix regex
+#     infix_regex = compile_infix_regex(infixes)
+
+#     # Update the tokenizer with the new infix rule
+#     nlp.tokenizer.infix_finditer = infix_regex.finditer
+
+#     return nlp
+
+
+
 #%% Modifying Spacy structures
 Token.set_extension("subwords", default = None)
 Token.set_extension("subword_indices", default = None)
@@ -95,17 +151,16 @@ class SpanUtils:
         id_string = annotation['concept_id']
         id_list = id_string.split(',')
         return id_list
+    
+
+    @staticmethod
+    def is_discontinuous(annotation):
+        return len(annotation['offsets']) > 1        
 
     @staticmethod
     def get_subword_indices(span):
         span._.subword_indices = (span[0]._.subword_indices[0], span[-1]._.subword_indices[1])
     
-    @staticmethod
-    def is_discontinuous(annotation):
-        return len(annotation['offsets']) > 1
-
-
-
     @staticmethod
     def one_shift_subspans(span):
         subspans = set()
@@ -166,6 +221,7 @@ class SpanUtils:
     @staticmethod
     def deserialize_spans(obj, attr, value):
         setattr(obj, attr, [obj.char_span(start, end, label = label) for start, end, label in value])
+
 
 #%% Saving utils
 class SaveUtils:
@@ -352,6 +408,7 @@ class SpanPair:
 
     def __eq__(self, other):
         return self.spans == other.spans and self.coref == other.coref
+    
     def __post_init__(self):
         self.spans = {self.span1, self.span2}
         self.type = self.span1.label_
@@ -430,52 +487,67 @@ class Relation:
     def _null_relation(self):
         return Relation(self.head, self.tail, None)
     
-    def _filter_positive_relations(self, relations, positive_relations):
-       return set(relations) - set(positive_relations)
-    
-    def is_valid(self, valid_combinations):
+    def is_valid_relation(self, valid_triples):
         combination = {self.head.type, self.tail.type, self.type}
-        return combination in valid_combinations
+        return combination in valid_triples
+    
+    def is_valid_entity_pair(self, valid_doubles):
+        combination = {self.head.type, self.tail.type}
+        return combination in valid_doubles
     
     @staticmethod
-    def filter_invalid_relations(relations, valid_combinations):
-        return set(el for el in relations if el.is_valid(valid_combinations))
+    def filter_invalid_relations(relations, valid_triples):
+        return set(el for el in relations if el.is_valid_relation(valid_triples))
     
-    def _mutate_relation_type(self, relation_type):
-        return Relation(self.head, self.tail, relation_type)
+    @staticmethod
+    def filter_invalid_entity_pairs(relations, valid_doubles):
+        return set(el for el in relations if el.is_valid_entity_pair(valid_doubles))
     
-    def relation_type_mutations(self, relation_types, positive_relations):
-        #relation_types = relation_class_converter.class2index_dict.keys()
-        mutated_relations = set(self._mutate_relation_type(el) for el in relation_types)
-        negative_relations = self._filter_positive_relations(mutated_relations, positive_relations)
-        return negative_relations
-
-    def _mutate_entity(self, entity, head_or_tail):
-        if head_or_tail == 'head':
-            return Relation(entity, self.tail, self.type)
-        elif head_or_tail == 'tail':
-            return Relation(self.head, entity, self.type)
-
-    def entity_mutations(self, entities, positive_relations):
-        entities = set(entities) - {self.head, self.tail}
-        head_mutations = set(self._mutate_entity(el, 'head') for el in entities if el.attrs['type'] == self.head.attrs['type'])
-        tail_mutations = set(self._mutate_entity(el, 'tail') for el in entities if el.attrs['type'] == self.tail.attrs['type'])
-
-        mutations = head_mutations | tail_mutations
-
-        negative_relations = self._filter_positive_relations(mutations, positive_relations)
-        
-        return negative_relations
-
-    def negative_relations(self, relation_types, positive_relations, entities):
-        negative_pairs = set()
-        negative_pairs.update(self.relation_type_mutations(relation_types, positive_relations))
-        negative_pairs.update(self.entity_mutations(entities, positive_relations))
-
-        return negative_pairs
+    @staticmethod
+    def filter_relations(entity_pairs, relations):
+       return set(entity_pairs) - set(relations)
 
     def enumerate_span_pairs(self):
-        return [SpanPair(el1, el2) for el1, el2 in product(self.head, self.tail)]    
+        return [SpanPair(el1, el2) for el1, el2 in product(self.head, self.tail)]   
+
+    @staticmethod
+    def candidate_relations(entities):
+        return [Relation(el1, el2) for el1, el2 in combinations(entities.values(), 2)] 
+
+    # def _mutate_relation_type(self, relation_type):
+    #     return Relation(self.head, self.tail, relation_type)
+    
+    # def relation_type_mutations(self, relation_types, positive_relations):
+    #     #relation_types = relation_class_converter.class2index_dict.keys()
+    #     mutated_relations = set(self._mutate_relation_type(el) for el in relation_types)
+    #     negative_relations = self._filter_positive_relations(mutated_relations, positive_relations)
+    #     return negative_relations
+
+    # def _mutate_entity(self, entity, head_or_tail):
+    #     if head_or_tail == 'head':
+    #         return Relation(entity, self.tail, self.type)
+    #     elif head_or_tail == 'tail':
+    #         return Relation(self.head, entity, self.type)
+
+    # def entity_mutations(self, entities, positive_relations):
+    #     entities = set(entities) - {self.head, self.tail}
+    #     head_mutations = set(self._mutate_entity(el, 'head') for el in entities if el.attrs['type'] == self.head.attrs['type'])
+    #     tail_mutations = set(self._mutate_entity(el, 'tail') for el in entities if el.attrs['type'] == self.tail.attrs['type'])
+
+    #     mutations = head_mutations | tail_mutations
+
+    #     negative_relations = self._filter_positive_relations(mutations, positive_relations)
+        
+    #     return negative_relations
+
+    # def negative_relations(self, relation_types, positive_relations, entities):
+    #     negative_pairs = set()
+    #     negative_pairs.update(self.relation_type_mutations(relation_types, positive_relations))
+    #     negative_pairs.update(self.entity_mutations(entities, positive_relations))
+
+    #     return negative_pairs
+
+    
         
 
 #%% Example
@@ -623,9 +695,6 @@ class Example:
                 end_index = start_index + len(el._.subwords)
                 el._.subword_indices = (start_index, end_index)
 
-        # if self.pmid == '14722929':
-        #     pass
-
         self.subword_tokens = unlist([el._.subwords for el in self.doc])
                 
     # for NER training            
@@ -640,7 +709,6 @@ class Example:
             subspans.update(SpanUtils.subspans(el))
         multi_shift_subspans = subspans - one_shift_subspans
         
-
         short_negative_spans = set()
         for start in range(len(self.doc) - 2):
             for end in (start + 1, start + 2):
@@ -653,11 +721,7 @@ class Example:
     def _superspans(self):
         superspans = set()
         for el in self.doc._.mentions:
-            superspans.update(SpanUtils.superspans(el, self.doc))
-        
-        # for entity in self.doc.spans.values():
-        #     superspan_list = [SpanUtils.superspans(span, self.doc) for span in entity]
-        #     superspans.update(set.union(*superspan_list))           
+            superspans.update(SpanUtils.superspans(el, self.doc))         
                                 
         return superspans
     
@@ -709,11 +773,20 @@ class Example:
         return unlist([EntityUtils.neg_span_pairs(el, entities - {el}) for el in entities])
 
     # For RC training
-    def negative_relations(self):
-        return unlist([el.negative_relations(self.parent_dataset.relation_types, self.doc._.relations, self.doc.spans.values()) for el in self.doc._.relations])
-
     def candidate_relations(self):
-        return [Relation(el1, el2) for el1, el2 in combinations(self.entities, 2)]
+       return Relation.candidate_relations(self.doc.spans)
+    
+    def filter_rare_relation_types(self):
+        return [el for el in self.doc._.relations if el.type in self.parent_dataset.relation_types]
+
+    def negative_relations(self):
+        entity_pairs = self.candidate_relations()
+        positive_relations = self.filter_rare_relation_types()
+        negative_relations = Relation.filter_relations(entity_pairs, positive_relations)
+        return list(negative_relations)
+    
+
+    
          
 
 #%% ClassConverter
@@ -774,7 +847,7 @@ class Dataset:
         self.examples = [Example(el, self) for el in self.huggingface_dataset]
 
     def _get_type_converter(self, types, null_value = None):
-        types.append(null_value)
+        types = types + [null_value]
         return ClassConverter(types)
 
     def get_entity_types(self):
@@ -784,6 +857,7 @@ class Dataset:
                 counts.update([entity.type])
         counts = counts.most_common()
         types = list(zip(*counts))[0]
+
         return list(types)
         
     def get_relation_types(self):
@@ -793,10 +867,9 @@ class Dataset:
                 counts.update([relation.type])
         counts = counts.most_common()
         types = list(zip(*counts))[0]
-        
-        self.counts = counts
+        print(counts)
 
-        return list(types) 
+        return types
 
     def process(self):
         # (a) entity types don't exist
@@ -806,105 +879,7 @@ class Dataset:
         if self.relation_types:
             self.relation_class_converter = self._get_type_converter(self.relation_types, None)
 
-    # @staticmethod
-    # def save_nlp(nlp, dataset_name):
-    
-    #     nlp_filename = path.join('data', 'processed', dataset_name, 'nlp.spacy_model')
-    #     nlp.to_disk(nlp_filename)
-
-    # @staticmethod
-    # def load_nlp(dataset_name):
-    #     nlp = spacy.load('en_core_sci_lg')
-        
-    #     nlp_filename = path.join('data', 'processed', dataset_name, 'nlp.spacy_model')
-
-    #     nlp.from_disk(nlp_filename)
-
-    #     return nlp
-
-
-
-    # # @staticmethod
-    # # def save_nlp(nlp, dataset_name):
-    # #     # Serialize
-    # #     config = nlp.config
-    # #     bytes_data = nlp.to_bytes()
-
-    # #     # Save config and bytes_data to files
-    # #     nlp_config_filename = path.join('data', 'processed', dataset_name, 'nlp_config.json')
-    # #     nlp_bytes_filename = path.join('data', 'processed', dataset_name, 'nlp_bytes.bin')        
-
-    # #     with open(nlp_config_filename, 'w') as file:
-    # #         file.write(config.to_str())
-    # #     with open(nlp_bytes_filename, 'wb') as file:
-    # #         file.write(bytes_data)
-
-    # # @staticmethod
-    # # def load_nlp(dataset_name):
-    # #     nlp_config_filename = path.join('data', 'processed', dataset_name, 'nlp_config.json')
-    # #     nlp_bytes_filename = path.join('data', 'processed', dataset_name, 'nlp_bytes.bin')
-
-    # #     with open(nlp_config_filename, 'r') as file:
-    # #         config = spacy.util.load_config(file)
-    # #     with open(nlp_bytes_filename, 'rb') as file:
-    # #         bytes_data = file.read()
-
-    # #     lang_cls = spacy.util.get_lang_class(config["nlp"]["lang"])
-    # #     nlp = lang_cls.from_config(config)
-    # #     nlp.from_bytes(bytes_data)
-
-    # #     return nlp
-    
-    # # @staticmethod
-    # # def detach_relations(example):
-    # #     example.detached_relations = example.doc._.relations
-    # #     example.doc._relations
-
-    # def save(self, save_dir, split):
-    #     # directories
-    #     data_path = path.join(save_dir)
-    #     split_path = path.join(data_path, split)
-    #     make_dir(split_path)
-
-    #     # detach mentions and relations from spacy do
-    #     for example in self.examples:
-    #         SaveUtils.remove_mentions_from_doc(example)
-    #         SaveUtils.move_relations_to_example(example)
-    #     # Save spaCy docs
-    #     for i, example in enumerate(self.examples):
-    #         example.doc.to_disk(path.join(split_path, f'doc_{i}.spacy'))
-
-    #     # Save dataset without spaCy docs
-    #     for example in self.examples:
-    #         example.doc = None
-    #     torch.save(self, path.join(split_path, 'data.save'))
-
-    #     if example.pmid == '14722929':
-    #         for i, el in enumerate(example.doc):
-    #             if not el._.subword_indices:
-    #                 print(el)
-    # @staticmethod
-    # def load(dataset_name, lm_checkpoint, split, nlp):
-        
-    #     split_path = path.join('data', 'processed', dataset_name, lm_checkpoint, split)
-
-    #     # Load dataset
-    #     dataset = torch.load(path.join(split_path, 'data.save'))
-
-    #     # Reload spaCy docs
-    #     for i, example in enumerate(dataset.examples):
-    #         example.doc = Doc(nlp.vocab).from_disk(path.join(split_path, f'doc_{i}.spacy'))
-    #         example._get_sentence_indices()
-    #         example._tokenize()
-
-    #         SaveUtils.span_group2mentions(example)
-    #         SaveUtils.move_relations_to_doc(example)
-    #         if example.pmid == '14722929':
-    #             for i, el in enumerate(example.doc):
-    #                 if not el._.subword_indices:
-    #                     print(el)
-    #     return dataset
-    
+   
     def save_class_types_and_converters(self, dataset_name):
         save_dir = path.join('data', 'processed', dataset_name)
         make_dir(save_dir)
@@ -931,44 +906,6 @@ class Dataset:
         nlp.from_disk(filepath)
 
         return nlp
-
-
-
-    # @staticmethod
-    # def save_nlp(nlp, dataset_name):
-    #     # Serialize
-    #     config = nlp.config
-    #     bytes_data = nlp.to_bytes()
-
-    #     # Save config and bytes_data to files
-    #     nlp_config_filename = path.join('data', 'processed', dataset_name, 'nlp_config.json')
-    #     nlp_bytes_filename = path.join('data', 'processed', dataset_name, 'nlp_bytes.bin')        
-
-    #     with open(nlp_config_filename, 'w') as file:
-    #         file.write(config.to_str())
-    #     with open(nlp_bytes_filename, 'wb') as file:
-    #         file.write(bytes_data)
-
-    # @staticmethod
-    # def load_nlp(dataset_name):
-    #     nlp_config_filename = path.join('data', 'processed', dataset_name, 'nlp_config.json')
-    #     nlp_bytes_filename = path.join('data', 'processed', dataset_name, 'nlp_bytes.bin')
-
-    #     with open(nlp_config_filename, 'r') as file:
-    #         config = spacy.util.load_config(file)
-    #     with open(nlp_bytes_filename, 'rb') as file:
-    #         bytes_data = file.read()
-
-    #     lang_cls = spacy.util.get_lang_class(config["nlp"]["lang"])
-    #     nlp = lang_cls.from_config(config)
-    #     nlp.from_bytes(bytes_data)
-
-    #     return nlp
-    
-    # @staticmethod
-    # def detach_relations(example):
-    #     example.detached_relations = example.doc._.relations
-    #     example.doc._relations
 
     def save(self, dataset_name, lm_checkpoint, split):
         # directories
@@ -1009,5 +946,3 @@ class Dataset:
             SaveUtils.move_relations_to_doc(example)
 
         return dataset
-    
-

@@ -488,14 +488,16 @@ class RelationClassifier(BaseRelationClassifier):
 
         return logits
 
-    # def get_gold_labels(self, relations, relation_type_converter):
-    #     labels = [relation_type_converter.class2index(el.type) for el in relations]
-    #     labels = torch.tensor(labels, device = self._device())
-    #     return labels
+    def get_gold_labels(self, relations, relation_type_converter):
+        labels = [relation_type_converter.class2index(el.type) for el in relations]
+        labels = torch.tensor(labels, device = self._device())
+        return labels
     
-    def get_gold_labels(self, relations, pos_or_neg):
-        val = 1 if pos_or_neg == 'pos' else 0
-        return torch.tensor([val] * len(relations), device = self._device())
+    # def get_gold_labels(self, relations, pos_or_neg):
+    #     val = 1 if pos_or_neg == 'pos' else 0
+    #     return torch.tensor([val] * len(relations), device = self._device())
+    
+ 
         
     def _unilabel_predict(self, relations, logits, relation_type_converter):
         type_indices = torch.argmax(logits, dim = 1)

@@ -5,7 +5,7 @@ trainer:
   accelerator: gpu
   accumulate_grad_batches: 1
   fast_dev_run: False #False #2 #50
-  max_epochs: 15 #30 #2
+  max_epochs: 30 #2
   check_val_every_n_epoch: 1000 # for blocking validation
   # limit_val_batches: 0
   # limit_train_batches: 5
@@ -22,7 +22,7 @@ trainer:
 model:
   dataset_name: BioRED
   lm_checkpoint: microsoft/BiomedNLP-BiomedBERT-base-uncased-abstract
-  task: 'rc' # 'ner', 'cluster', 'rc', 'e2e'
+  task: 'e2e' # 'ner', 'cluster', 'rc', 'e2e'
   ner_config:
     class: NER
     config:
@@ -171,6 +171,7 @@ model:
   calculator_class: Calculator
   neg_to_pos_span_ratio: 11
   neg_to_pos_span_pair_ratio: 9
+  neg_to_pos_relation_ratio: 3
   span_sampling_probs:
     multi_shift: 0.5
     short: 0.5
