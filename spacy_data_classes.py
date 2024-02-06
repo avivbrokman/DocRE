@@ -469,6 +469,9 @@ class Relation:
         hash_tuple = tuple(hash_list)
         return hash(hash_tuple)
     
+    def __post_init__(self):
+        self.entities = {self.head, self.tail}
+
     # @classmethod
     # def from_set(cls, entities, type_):
     #     head = entities.pop()
@@ -523,6 +526,12 @@ class Relation:
 
         return negative_pairs
 
+    def is_positive(self, gold_relations):
+        for gold in gold_relations:
+            if self.entities == gold.entities:
+                return True
+        return False
+            
     def enumerate_span_pairs(self):
         return [SpanPair(el1, el2) for el1, el2 in product(self.head, self.tail)]    
         
@@ -763,6 +772,8 @@ class Example:
 
     def candidate_relations(self):
         return [Relation(el1, el2) for el1, el2 in combinations(self.entities, 2)]
+    
+
          
 
 #%% ClassConverter

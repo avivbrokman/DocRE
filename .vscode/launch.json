@@ -79,6 +79,16 @@
             "module": "data_processing.CDR",
             "console": "integratedTerminal",
             "env": {"PYDEVD_WARN_EVALUATION_TIMEOUT": "500"}
-        }
+        },
+        {
+            "name": "BioRED RC validation",
+            "type": "python",
+            "request": "launch",
+            "program": "spacy_main.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["validate", "--config", "ELRE_spacy_config.yaml", "--ckpt_path", "lightning_logs/version_183/checkpoints/epoch=0-step=400.ckpt"],
+            "env": {"CUDA_LAUNCH_BLOCKING": "1"}
+        },
     ]
 }

@@ -5,6 +5,7 @@
 import os
 from os import path
 import re
+from itertools import combinations
 import torch
 from torch.nn import Embedding
 from torch.nn.functional import cross_entropy, binary_cross_entropy_with_logits
@@ -16,7 +17,7 @@ from random import sample
 
 # from parameter_modules import EnhancedEmbedding
 from spacy_data_classes import SpanUtils
-from utils import save_json
+from utils import save_json, unlist
 
 #%% body
 class ELRELightningModule(LightningModule):
@@ -49,10 +50,9 @@ class ELRELightningModule(LightningModule):
             ner_config['config']['num_entity_classes'] = len(self.entity_type_converter)
         if self.task in ['rc', 'e2e']:
             if self.dataset_name == 'BioRED':
-                rc_config['config']['num_relation_classes'] = len(self.relation_type_converter)
-            #     rc_config['config']['num_relation_classes'] = 5
-            # elif self.dataset_name == 'CDR':
-            #     rc_config['config']['num_relation_classes'] = 2
+                rc_config['config']['num_relation_classes'] = 5
+            elif self.dataset_name == 'CDR':
+                rc_config['config']['num_relation_classes'] = 2
             
             # if the task is multilabel, there should be no null class classifier, so remove one from the number of relation classes
             if rc_config['config']['is_multilabel']:
@@ -361,14 +361,41 @@ class ELRELightningModule(LightningModule):
         else:
             return set(), set()
     
+    def is_positive(self, candidate):
+        for gold in self.relations:
+            if {gold.head, gold.tail} == {candidate.head, candidate.tail}:
+                return True
+        return False
+            
+
+    def candidate_relations(self, entities):
+        entity_pairs = [[(head, tail), (tail, head)] for head, tail in combinations(entities, 2)]
+        entity_pairs = unlist(entity_pairs)
+
+        entity_pairs = [el for el in entity_pairs if self.is_positive(el)]
+
+        return entity_pairs
+    
+    
+                
+        
+        
+
+        
+        
+
     def rc_training_step(self, example, token_embeddings):
 
         if example.doc._.relations:
             
+            
+
             negative_relations = example.negative_relations()
 
+            
             positive_logits = self.rc(example.doc._.relations, token_embeddings)
             negative_logits = self.rc(negative_relations, token_embeddings)
+
 
             positive_class_indices = torch.tensor([self.relation_type_converter.class2index(el.type) for el in example.doc._.relations])
             negative_class_indices = torch.tensor([self.relation_type_converter.class2index(el.type) for el in negative_relations])
@@ -430,24 +457,24 @@ class ELRELightningModule(LightningModule):
 
         return loss
     
-    # def filter_invalid_combination_BioRED(self, relations):
+    def filter_invalid_combination_BioRED(self, relations):
     
-    #     valid_type_combinations = set(('DiseaseOrPhenotypicFeature', 'ChemicalEntity'),
-    #                             ('DiseaseOrPhenotypicFeature', 'GeneOrGeneProduct'),
-    #                             ('DiseaseOrPhenotypicFeature', 'SequenceVariant'),
-    #                             ('GeneOrGeneProduct', 'GeneOrGeneProduct'),
-    #                             ('GeneOrGeneProduct', 'ChemicalEntity'),
-    #                             ('ChemicalEntity', 'ChemicalEntity'),
-    #                             ('ChemicalEntity', 'SequenceVariant')
-    #                             )
+        valid_type_combinations = set(('DiseaseOrPhenotypicFeature', 'ChemicalEntity'),
+                                ('DiseaseOrPhenotypicFeature', 'GeneOrGeneProduct'),
+                                ('DiseaseOrPhenotypicFeature', 'SequenceVariant'),
+                                ('GeneOrGeneProduct', 'GeneOrGeneProduct'),
+                                ('GeneOrGeneProduct', 'ChemicalEntity'),
+                                ('ChemicalEntity', 'ChemicalEntity'),
+                                ('ChemicalEntity', 'SequenceVariant')
+                                )
         
-    #     valid_type_combinations |= set((el[1], el[0]) for el in valid_type_combinations)
+        valid_type_combinations |= set((el[1], el[0]) for el in valid_type_combinations)
 
-    #     return [el for el in relations if (el.head.attrs['type'], el.tail.attrs['type']) in valid_type_combinations]
+        return [el for el in relations if (el.head.attrs['type'], el.tail.attrs['type']) in valid_type_combinations]
 
-    # def filter_uncommon_relation_types(self, predicted_relations):
-    #     uncommon_types = {"Comparison", "Conversion", "Cotreatment"}
-    #     return [el for el in predicted_relations if el.type in uncommon_types]
+    def filter_uncommon_relation_types(self, predicted_relations):
+        uncommon_types = {"Comparison", "Conversion", "Cotreatment"}
+        return [el for el in predicted_relations if el.type in uncommon_types]
 
     def inference_step(self, example, example_index):
         # print('inference step')
@@ -475,9 +502,9 @@ class ELRELightningModule(LightningModule):
             candidate_relations = example.doc._.relations + example.negative_relations()
             
         if self.task in ['rc', 'e2e']:
-            # candidate_relations = self.filter_invalid_combination_BioRED(candidate_relations)
+            candidate_relations = self.filter_invalid_combination_BioRED(candidate_relations)
             predicted_relations = self.rc_inference_step(candidate_relations, token_embeddings)
-            # predicted_relations = self.filter_uncommon_relation_types(predicted_relations)
+            predicted_relations = self.filter_uncommon_relation_types(predicted_relations)
 
                 
         # example performance
