@@ -2,13 +2,13 @@
 
 #%% libraries
 import torch
-from torch.nn import LazyLinear, Embedding
+from torch.nn import LazyLinear, Embedding, Dropout
 from torch.nn.functional import sigmoid, softmax
 from copy import deepcopy
 from collections import defaultdict
 from itertools import combinations, product
 
-from spacy_data_classes import SpanPair, SpanGroup, Relation
+from spacy_data_classes import SpanPair, SpanGroup, Relation, EvalMention, EvalSpanPair, EvalEntity, EvalRelation
 from spacy_parameter_modules import EnhancedModule
 
 from utils import mode, unlist
@@ -30,12 +30,13 @@ def retrieve_token_embeddings_of_span(span, token_embeddings):
 
 
 class SpanEmbedder(EnhancedModule):
-    def __init__(self, token_embedder, token_pooler, vector_embedder):
+    def __init__(self, token_embedder, token_pooler, vector_embedder, dropout_prob = 0.2):
         super().__init__()
 
         self.token_embedder = token_embedder
         self.token_pooler = token_pooler
         self.vector_embedder = vector_embedder
+        self.dropout = Dropout(dropout_prob)
         
 
     def _pooled_token_embedding(self, span, token_embeddings):
@@ -75,6 +76,7 @@ class SpanEmbedder(EnhancedModule):
         if extra_embeddings is not None:
             pooled_embeddings = torch.cat((pooled_embeddings, extra_embeddings), dim = 1)
 
+        pooled_embeddings = self.dropout(pooled_embeddings)
         span_embeddings = self.vector_embedder(pooled_embeddings)
         
         # empty span
@@ -89,6 +91,8 @@ class SpanEmbedder(EnhancedModule):
         for i in empty_spans:
             zero_index = torch.tensor(0, device = self._device())
             span_embeddings[i] = self.null_span_embedder(zero_index)
+
+        span_embeddings = self.dropout(span_embeddings)
 
         return span_embeddings
 
@@ -109,8 +113,8 @@ class NER(EnhancedModule):
         self.length_embedder = length_embedder
         self.prediction_layer = LazyLinear(num_entity_classes)
 
-    def filter_nonentities(self, spans):
-        return set(el for el in spans if el.label_)
+    # def filter_nonentities(self, spans):
+    #     return set(el for el in spans if el.label_)
 
     def forward(self, spans, token_embeddings):
         
@@ -133,14 +137,21 @@ class NER(EnhancedModule):
         type_indices = torch.argmax(logits, dim = 1)
         
         
+        predicted_mentions = set()
         for i, el in enumerate(spans):
-            el.label_ = entity_type_converter.index2class(type_indices[i])
+            type_ = entity_type_converter.index2class(type_indices[i])
+            if type_:
+                predicted_mentions.add(EvalMention.from_span(el, type_))
 
-        return spans
+        return predicted_mentions
 
 #%% coreference
 class Coreference(EnhancedModule):
-    def __init__(self, levenshtein_embedder, levenshtein_gate, span_embedder, type_embedder, length_embedder, length_difference_embedder, num_coref_classes, coref_cutoff):
+    def __init__(self, 
+                 levenshtein_embedder, levenshtein_gate, span_embedder, 
+                 type_embedder, length_embedder, length_difference_embedder, 
+                #  span_pair_embedder, 
+                 num_coref_classes, coref_cutoff, dropout_prob = 0.2):
         super().__init__()
 
         # need
@@ -154,13 +165,17 @@ class Coreference(EnhancedModule):
         self.length_difference_embedder = length_difference_embedder
 
         self.coref_cutoff = coref_cutoff
+        self.dropout = Dropout(dropout_prob)
 
     def get_spans_from_span_pairs(self, span_pairs):
-        # spans = set()
-        # for el in span_pairs:
-        #     spans.update(el.spans)
+        spans = set()
+        for el in span_pairs:
+            if isinstance(el, SpanPair): 
+                spans.update(el.spans)
+            elif isinstance(el, EvalSpanPair):
+                spans.update(el.mentions)
 
-        spans = set.union(*[el.spans for el in span_pairs])
+        # spans = set.union(*[el.spans for el in span_pairs])
 
         return list(spans)
 
@@ -208,6 +223,10 @@ class Coreference(EnhancedModule):
 
             span_pair_embeddings = torch.cat((span_pair_embeddings, levenshtein_embeddings), dim = 1)
 
+        # span_pair_embeddings = self.span_pair_embedder(span_pair_embeddings)
+
+        span_pair_embeddings = self.dropout(span_pair_embeddings)
+
         logits = self.prediction_layer(span_pair_embeddings)
 
         return logits 
@@ -226,10 +245,13 @@ class Coreference(EnhancedModule):
         probs = softmax(logits, dim = 1) #sigmoid(logits)
         coref_indices = torch.nonzero(probs[:,1] > self.coref_cutoff).squeeze()
 
+        eval_span_pairs = set()
         for i, el in enumerate(span_pairs):
-            el.coref = int(i in coref_indices)
+            coref = int(i in coref_indices)
+            if coref:
+                eval_span_pairs.add(EvalSpanPair.from_span_pair(el, coref))
 
-        return span_pairs
+        return eval_span_pairs
     
     def _get_objects_by_type(self, objects):
     
@@ -254,54 +276,31 @@ class Coreference(EnhancedModule):
 
         linked_mentions = self.get_spans_from_span_pairs(coreferences)  
 
+        mentions = [EvalMention.from_span(el) for el in mentions]
         singletons = list(set(mentions) - set(linked_mentions))
-
-        singletons = [{el} for el in singletons]
+ 
+        singletons = [EvalEntity.from_eval_mention(el) for el in singletons]
 
         return singletons 
 
-    def _combine(self, cluster1, cluster2):
-        indices1 = set((el.start, el.end) for el in cluster1)
-        indices2 = set((el.start, el.end) for el in cluster2)
-
-        if indices1 & indices2:
-            return cluster1 | cluster2
-        
-    def cluster(self, mentions, coreferences, doc):
+    def cluster(self, mentions, coreferences):
         
         singletons = self._get_singletons(mentions, coreferences)
-        doubletons = [el.spans for el in coreferences]
-        unfinished_clusters = doubletons
+        unfinished_clusters = [EvalEntity.from_eval_span_pair(el) for el in coreferences]
         finished_clusters = singletons
 
         while unfinished_clusters:
             cluster = unfinished_clusters.pop()
             for i, el in enumerate(unfinished_clusters):
-                combined = self._combine(cluster, el)
+                combined = cluster.merge(el)
                 if combined:
                     unfinished_clusters.pop(i)
                     unfinished_clusters.append(combined)
                     break
             else:
                 finished_clusters.append(cluster)
-        
-        entities = set()
-        for cluster in finished_clusters:
-            id_ = mode(unlist([el._.id for el in cluster]))
-            type_ = mode([el.label_ for el in cluster])
-            entity = SpanGroup(doc, attrs = {'id': id_, 'type': type_}, spans = cluster)
-            entities.add(entity)
-
-        return entities
-# #%% Iterative Clusterer
-# class IterativeClusterer(nn.Module):
-#     def __init__(self):
-
-    
-#     def forward(self, spans):
-        
-
-
+       
+        return finished_clusters
 
 #%% RC base class
 class BaseRelationClassifier(EnhancedModule):
@@ -450,7 +449,7 @@ class RelationClassifier(BaseRelationClassifier):
         return torch.stack(embeddings)
     
     def forward(self, relations, token_embeddings):
-        relations = list(relations)
+        # relations = list(relations)
 
         spans = self.get_spans_from_relations(relations)
         intervening_spans = self.get_intervening_spans(relations)
@@ -498,25 +497,30 @@ class RelationClassifier(BaseRelationClassifier):
     #     return torch.tensor([val] * len(relations), device = self._device())
     
  
-        
+    
     def _unilabel_predict(self, relations, logits, relation_type_converter):
         type_indices = torch.argmax(logits, dim = 1)
         
+        eval_relations = set()
         for i, el in enumerate(relations):
-            el.type = relation_type_converter.index2class(type_indices[i])
+            type_ = relation_type_converter.index2class(type_indices[i])
+            eval_relations.add(EvalRelation.from_relation(el, type_))
         
-        return relations
+        return eval_relations
 
     def _multilabel_predict(self, relations, logits, relation_type_converter):
         probabilities = sigmoid(logits)
         predicted_indices = (probabilities > self.rc_cutoff).nonzero(as_tuple = False)
         predicted_indices = predicted_indices.tolist()
 
+        eval_relations = set()
         for relation_index, relation_type_index in predicted_indices:
             relation = relations[relation_index]
-            relation.type = relation_type_converter.index2class(relation_type_index)
+            type_ = relation_type_converter.index2class(relation_type_index)
+            eval_relations.add(EvalRelation.from_relation(relation, type_))
+            
 
-        return relations
+        return eval_relations
 
     def predict(self, relations, logits, relation_type_converter):
         if not self.is_multilabel:

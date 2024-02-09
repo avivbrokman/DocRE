@@ -22,7 +22,7 @@ trainer:
 model:
   dataset_name: BioRED
   lm_checkpoint: microsoft/BiomedNLP-BiomedBERT-base-uncased-abstract
-  task: 'e2e' # 'ner', 'cluster', 'rc', 'e2e'
+  task: 'cluster' # 'ner', 'cluster', 'rc', 'e2e'
   ner_config:
     class: NER
     config:
@@ -81,6 +81,12 @@ model:
         config:
           num_embeddings: 1000
           embedding_dim: 32
+      # span_pair_embedder:
+      #   class: MLP2
+      #   config: 
+      #     intermediate_dim: 256
+      #     output_dim: 32
+      #     final_activation: True
       num_coref_classes: 2
       coref_cutoff: 0.5
   rc_config:
@@ -162,7 +168,7 @@ model:
   rc_scorer_classes: 
     - TypedLocationStrictRCScorer
     # - TypedStringStrictRCScorer
-    # - UntypedLocationStrictRCScorer
+    - UntypedLocationStrictRCScorer
     # - UntypedStringStrictRCScorer
     - TypedLocationRelaxedRCScorer
     # - TypedStringRelaxedRCScorer
@@ -176,6 +182,7 @@ model:
     multi_shift: 0.5
     short: 0.5
   max_span_length: 10
+  dropout_prob: 0.2
 
 # data config
 data:

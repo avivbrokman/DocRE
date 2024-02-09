@@ -10,8 +10,8 @@ from transformers import AutoTokenizer
 
 from utils import make_dir
 
-from general_spacy_data_classes import Dataset, TokenizerModification
-from general_spacy_data_classes import SpanUtils, Example, Relation, EvalRelation
+from spacy_data_classes import Dataset, TokenizerModification
+from spacy_data_classes import SpanUtils, Example, Relation, EvalRelation
 #%%
 #%% SpanUtils
         
@@ -79,6 +79,16 @@ def _get_eval_relations(self):
     annotated_relations = self.annotation['passages'][0]['relations'] + self.annotation['passages'][1]['relations']
     self.eval_relations = [self._get_eval_relation(el) for el in annotated_relations]
 
+def _get_text(self):
+    passages = self.annotation['passages']
+    for el in passages:
+        if el['type'] == 'title':
+            self.title = el['text']
+        if el['type'] == 'abstract':
+            self.abstract = el['text']
+    
+    self.text = self.title + ' ' + self.abstract 
+
 
 Example._get_pmid = _get_pmid
 Example._get_mentions = _get_mentions
@@ -86,7 +96,7 @@ Example._get_train_relation = _get_train_relation
 Example._get_train_relations = _get_train_relations
 Example._get_eval_relation = _get_eval_relation
 Example._get_eval_relations = _get_eval_relations
-
+Example._get_text = _get_text
 
 
 
@@ -197,7 +207,7 @@ full_data = concatenate_datasets([train_data, validation_data, test_data])
 # processes full dataset to get complete list of entity types and relation types
 full_data = Dataset(full_data, nlp, tokenizer)
 entity_types = full_data.get_entity_types()
-relation_types = full_data.get_relation_types()
+relation_types = ['CID']
 
 
 # processes all datasets

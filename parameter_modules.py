@@ -1,7 +1,7 @@
 #%% libraries
 import torch
 from torch.nn import Module, LazyLinear, Embedding, Linear
-from torch.nn.functional import mish, max_pool2d, sigmoid
+from torch.nn.functional import mish, max_pool2d, sigmoid, dropout
 from torch.nn.modules.lazy import LazyModuleMixin
 from torch.nn.parameter import UninitializedParameter
 
@@ -28,18 +28,7 @@ def max_pool(x):
         
     return x
 
-#%% logistic regression (typical prediction layer)
-# class LogisticRegression(EnhancedModule):
-#     def __init__(self, num_classes):
-#         super().__init__()
-        
-#         self.linear = LazyLinear(num_classes)
-        
-#     def forward(self, x):
-#         x = self.linear(x)
-#         x = softmax(x, -1)
-        
-#         return x
+
 
 #%%
 class MLP1(EnhancedModule):
@@ -52,6 +41,7 @@ class MLP1(EnhancedModule):
     def forward(self, x):
         x = self.linear(x)
         x = self.activation(x)
+        x = dropout(x)
         return x
 
 #%% MLP2
@@ -68,6 +58,7 @@ class MLP2(EnhancedModule):
     def forward(self, x):
         x = self.linear1(x)
         x = self.activation(x)
+        x = dropout(x)
         x = self.linear2(x)
         if self.final_activation is True:
             x = self.activation(x)
@@ -92,6 +83,7 @@ class MLP2Pooler(EnhancedModule):
     def forward(self, x):
 
         x = self.mlp(x)
+        
         x = max_pool(x)
         
         return x
@@ -106,6 +98,7 @@ class AttentionPooler(EnhancedModule):
     def forward(self, x):
 
         x = self.mlp(x)
+        x = dropout(x)
         x = max_pool(x)
         
         return x
@@ -167,6 +160,8 @@ class Gate(EnhancedModule):
             self.linear_extra = LazyLinear(self.linear_focal.weight.shape[1], bias = False, device = self._device())
         extra_transform = self.linear_extra(extra)
         gate = focal_transform + extra_transform
+
+        gate = dropout(gate)
 
         gate = sigmoid(gate)
         return gate * focal

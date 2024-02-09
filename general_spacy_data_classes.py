@@ -119,16 +119,16 @@ class TokenizerModification:
 
 
 #%% Modifying Spacy structures
-Token.set_extension("subwords", default = None)
-Token.set_extension("subword_indices", default = None)
-Token.set_extension("sentence_index", default = None)
+Token.set_extension("subwords", default = None, force = True)
+Token.set_extension("subword_indices", default = None, force = True)
+Token.set_extension("sentence_index", default = None, force = True)
 
-Span.set_extension("id", default = list())
-# Span.set_extension("sentence_index", default = None)
-Span.set_extension("subword_indices", default = None)
+Span.set_extension("id", default = list(), force = True)
+# Span.set_extension("sentence_index", default = None, force = True)
+Span.set_extension("subword_indices", default = None, force = True)
 
-Doc.set_extension("mentions", default = set())
-Doc.set_extension("relations", default = set())
+Doc.set_extension("mentions", default = set(), force = True)
+Doc.set_extension("relations", default = set(), force = True)
 
 #%% SpanUtils
 class SpanUtils:

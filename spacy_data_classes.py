@@ -308,11 +308,14 @@ class EvalMention:
         return cls(start_char, end_char, text, type, id_)
     
     @classmethod
-    def from_span(cls, span):
+    def from_span(cls, span, type_ = None):
         start_char, end_char = span.start_char, span.end_char
         text = span.text
-        type_ = span.label_
         id_ = span._.id
+
+        if type_ is None:
+            type_ = span.label_
+
         return cls(start_char, end_char, text, type_, id_)
 
 
@@ -341,12 +344,14 @@ class EvalSpanPair:
         return self.coref == other.coref and self.mentions == other.mentions
 
     @classmethod
-    def from_span_pair(cls, span_pair):
+    def from_span_pair(cls, span_pair, coref = None):
         mention1 = EvalMention.from_span(span_pair.span1)
         mention2 = EvalMention.from_span(span_pair.span2)
-        coref = span_pair.coref
+
         # type_ = span_pair.span1.label_
-        
+        if coref is None:
+            coref = span_pair.coref
+
         # return cls(mention1, mention2, coref, type_)
         return cls(mention1, mention2, coref)
     
@@ -374,6 +379,51 @@ class EvalEntity:
         id_ = entity.name
 
         return cls(mentions, type_, id_)
+    
+    # def does_overlap(self, other):
+    #     self_offsets = {(el.start_char, el.end_char) for el in self.mentions}
+    #     other_offsets = {(el.start_char, el.end_char) for el in other.mentions}
+
+    #     return bool(self_offsets & other_offsets)
+    
+    def merge(self, other):
+        self_offsets = {(el.start_char, el.end_char) for el in self.mentions}
+        other_offsets = {(el.start_char, el.end_char) for el in other.mentions}
+
+        if self_offsets & other_offsets:
+        
+            mentions = self.mentions | other.mentions
+            type_ = mode([el.type for el in mentions])
+            id_ = mode(unlist([el.id for el in mentions]))
+
+            return EvalEntity(mentions, type_, id_)
+        else:
+            return False
+        
+    # @classmethod
+    # def from_span(cls, span):
+    #     mentions = {EvalMention.from_span(span)}
+    #     type_ = span.label_
+    #     id_ = span.id
+    #     return cls(mentions, type_, id_)
+    
+    @classmethod
+    def from_eval_mention(cls, mention):
+        mentions = {mention}
+        type_ = mention.type
+        id_ = mention.id
+        return cls(mentions, type_, id_)
+
+    @classmethod
+    def from_eval_span_pair(cls, span_pair):
+        mentions = span_pair.mentions
+        type_ = mode([el.type for el in mentions])
+        id_ = mode(unlist([el.id for el in mentions]))
+ 
+        return cls(mentions, type_, id_)
+    
+    def eval_span_pairs(self):
+        return set(EvalSpanPair(men1, men2, 1) for men1, men2 in combinations(self.mentions, 2)) 
 
 #%% EvalRelation
 @dataclass
@@ -389,10 +439,12 @@ class EvalRelation:
         return hash((self.head, self.tail, self.type))  
 
     @classmethod
-    def from_relation(cls, relation):
+    def from_relation(cls, relation, type_ = None):
         head = EvalEntity.from_entity(relation.head)
         tail = EvalEntity.from_entity(relation.tail)
-        type_ = relation.type
+        
+        if type_ is None:
+            type_ = relation.type
 
         return cls(head, tail, type_)
 
@@ -442,7 +494,45 @@ class SpanPair:
             intervening_span = self.span1.doc[intervening_span[0]:intervening_span[1]]
             SpanUtils.get_subword_indices(intervening_span)
             return intervening_span
+        
     
+    @staticmethod    
+    def _get_lca(token1, token2):
+        ancestors1 = set(token1.ancestors)
+        for ancestor in token2.ancestors:
+            if ancestor in ancestors1:
+                return ancestor
+        return None
+
+    @staticmethod
+    def _trace_path_to_LCA(token, lca):
+        path = set([lca])
+        current = token
+        while current != lca:
+            path.add(current)
+            current = current.head
+            
+        return path
+    
+    @staticmethod
+    def _connecting_path(token1, token2):
+
+        path = set()
+        lca = SpanPair._get_lca(token1, token2)
+        if lca:
+            path1 = SpanPair._trace_path_to_LCA(token1, lca)
+            path2 = SpanPair._trace_path_to_LCA(token2, lca)
+            path.update(path1)
+            path.update(path2)
+        return path
+
+    def path_tokens(self):
+            
+        paths = [SpanPair._connecting_path(token1, token2) for token1, token2 in product(self.span1, self.span2)] 
+            
+        path_union = set.union(*paths)
+
+        return path_union
     
 #%% Entity
 class EntityUtils:
@@ -650,9 +740,14 @@ class Example:
             mentions = set(entity)
             self.eval_entities.append(EvalEntity(mentions, type, id_))
 
+    def _get_eval_span_pairs(self):
+        pairs_list = [el.eval_span_pairs() for el in self.eval_entities]
+        self.eval_span_pairs = set.union(*pairs_list)
+
     def _get_entities(self):        
         self._get_train_entities()
         self._get_eval_entities()
+        self._get_eval_span_pairs()
         
     def _get_train_relation(self, annotation):
         entity1 = self.doc.spans[annotation['concept_1']]
@@ -917,44 +1012,6 @@ class Dataset:
         nlp.from_disk(filepath)
 
         return nlp
-
-
-
-    # @staticmethod
-    # def save_nlp(nlp, dataset_name):
-    #     # Serialize
-    #     config = nlp.config
-    #     bytes_data = nlp.to_bytes()
-
-    #     # Save config and bytes_data to files
-    #     nlp_config_filename = path.join('data', 'processed', dataset_name, 'nlp_config.json')
-    #     nlp_bytes_filename = path.join('data', 'processed', dataset_name, 'nlp_bytes.bin')        
-
-    #     with open(nlp_config_filename, 'w') as file:
-    #         file.write(config.to_str())
-    #     with open(nlp_bytes_filename, 'wb') as file:
-    #         file.write(bytes_data)
-
-    # @staticmethod
-    # def load_nlp(dataset_name):
-    #     nlp_config_filename = path.join('data', 'processed', dataset_name, 'nlp_config.json')
-    #     nlp_bytes_filename = path.join('data', 'processed', dataset_name, 'nlp_bytes.bin')
-
-    #     with open(nlp_config_filename, 'r') as file:
-    #         config = spacy.util.load_config(file)
-    #     with open(nlp_bytes_filename, 'rb') as file:
-    #         bytes_data = file.read()
-
-    #     lang_cls = spacy.util.get_lang_class(config["nlp"]["lang"])
-    #     nlp = lang_cls.from_config(config)
-    #     nlp.from_bytes(bytes_data)
-
-    #     return nlp
-    
-    # @staticmethod
-    # def detach_relations(example):
-    #     example.detached_relations = example.doc._.relations
-    #     example.doc._relations
 
     def save(self, dataset_name, lm_checkpoint, split):
         # directories

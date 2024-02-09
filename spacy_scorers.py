@@ -1,6 +1,7 @@
 #%% libraries
 from dataclasses import dataclass
 from collections import defaultdict
+from copy import deepcopy
 
 from spacy_data_classes import Span, EvalMention, SpanPair, EvalSpanPair, SpanGroup, EvalEntity, Relation, EvalRelation
 from utils import defaultdict2dict
@@ -26,6 +27,21 @@ class Scorer:
             return EvalEntity.from_entity(instance)
         if isinstance(instance, Relation):
             return EvalRelation.from_relation(instance)
+
+    def _make_set(self):
+        self.predicted = set(self.predicted)
+        self.gold = set(self.gold)
+
+    def _copy(self):
+        self.predicted = deepcopy(self.predicted)
+        self.gold = deepcopy(self.gold)
+        
+
+    def __post_init__(self):
+        self._copy()
+        self._make_set()
+
+    
         
         
    
@@ -107,6 +123,7 @@ class MulticlassScorer(Scorer):
         self.get_multiclass_scores()
 
     def __post_init__(self):
+        super().__post_init__()
         self.score()
 
     def performance_counts(self):
@@ -182,7 +199,8 @@ class RelaxedScorer(MulticlassScorer):
         self.get_multiclass_scores()
 
     def __post_init__(self):
-        self.score()
+        self._copy()
+        self._make_set()
 
 
     
@@ -194,16 +212,14 @@ class RelaxedScorer(MulticlassScorer):
 @dataclass
 class TypedLocationNERScorer(MulticlassScorer):
     def __post_init__(self):
-        self.gold = set(self.gold)
-        self.predicted = self.get_eval_objects(self.predicted)
+        super().__post_init__()
         self.score()
 
 # @dataclass
 # class TypedStringNERScorer(MulticlassScorer):
 #     def __post_init__(self):
-#         self.gold = self.get_eval_objects(self.gold, True, 'string')
-#         self.predicted = self.get_eval_objects(self.predicted, True, 'string')
-#         self.score()            
+#         super().__post_init__()
+#         self.score()           
 
 # @dataclass
 # class UntypedLocationNERScorer(MulticlassScorer):
@@ -229,16 +245,14 @@ class TypedLocationNERScorer(MulticlassScorer):
 class TypedLocationCorefScorer(UniclassScorer):
     
     def __post_init__(self):
-        self.gold = self.get_eval_objects(self.gold)
-        self.predicted = self.get_eval_objects(self.predicted)
+        super().__post_init__()
         self.score()
 
 #%% Entity Scorer
 @dataclass
 class TypedLocationStrictEntityScorer(MulticlassScorer):
     def __post_init__(self):
-        self.gold = set(self.gold)
-        self.predicted = self.get_eval_objects(self.predicted)        
+        super().__post_init__()      
         self.score()
 
 # @dataclass
@@ -269,8 +283,7 @@ class TypedLocationStrictEntityScorer(MulticlassScorer):
 class TypedLocationRelaxedEntityScorer(RelaxedScorer):
     
     def __post_init__(self):
-        self.gold = set(self.gold)
-        self.predicted = self.get_eval_objects(self.predicted)
+        super().__post_init__()
         self.score(True, 'entity')
 
 # @dataclass
@@ -301,8 +314,7 @@ class TypedLocationRelaxedEntityScorer(RelaxedScorer):
 @dataclass
 class TypedLocationStrictRCScorer(MulticlassScorer):
     def __post_init__(self):
-        self.gold = set(self.gold)
-        self.predicted = self.get_eval_objects(self.predicted)
+        super().__post_init__()
         self.score()
 
 # #
@@ -313,13 +325,26 @@ class TypedLocationStrictRCScorer(MulticlassScorer):
 #         self.predicted = self.get_eval_objects(self.predicted, True, 'string')
 #         self.score()
 
-# ##
-# @dataclass
-# class UntypedLocationStrictRCScorer(MulticlassScorer):
-#     def __post_init__(self):
-#         self.gold = self.get_eval_objects(self.gold, False, 'location')
-#         self.predicted = self.get_eval_objects(self.predicted, False, 'location')
-#         self.score()
+##
+@dataclass
+class UntypedLocationStrictRCScorer(MulticlassScorer):
+    
+    def detype(self):
+        gold = set()
+        for el in self.gold:
+            el.type = None
+            gold.add(el)
+
+        predicted = set()
+        for el in self.predicted:
+            el.type = None
+            predicted.add(el)
+            
+    
+    def __post_init__(self):
+        super().__post_init__()
+        self.detype()
+        self.score()
 
 # #
 # @dataclass
@@ -333,8 +358,7 @@ class TypedLocationStrictRCScorer(MulticlassScorer):
 @dataclass
 class TypedLocationRelaxedRCScorer(RelaxedScorer):
     def __post_init__(self):
-        self.gold = set(self.gold)
-        self.predicted = self.get_eval_objects(self.predicted)
+        super().__post_init__()
         self.score(True, 'relation')
 
 # @dataclass

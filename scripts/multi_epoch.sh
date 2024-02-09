@@ -24,7 +24,7 @@
 
 
 ######
-CHECKPOINT_DIR="lightning_logs/version_208/checkpoints"
+CHECKPOINT_DIR="lightning_logs/version_255/checkpoints"
 
 # Loop through each checkpoint file
 for CHECKPOINT_PATH in ${CHECKPOINT_DIR}/epoch=*.ckpt; do

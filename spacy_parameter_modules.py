@@ -1,6 +1,6 @@
 #%% libraries
 import torch
-from torch.nn import Module, LazyLinear, Embedding, Linear
+from torch.nn import Module, LazyLinear, Embedding, Linear, Dropout
 from torch.nn.functional import mish, max_pool2d, sigmoid
 from torch.nn.modules.lazy import LazyModuleMixin
 from torch.nn.parameter import UninitializedParameter
@@ -43,36 +43,42 @@ def max_pool(x):
 
 #%% MLP1
 class MLP1(EnhancedModule):
-    def __init__(self, output_dim, activation = mish):
+    def __init__(self, output_dim, activation = mish, dropout_prob = 0.2):
         super().__init__()
 
         self.linear = LazyLinear(output_dim)
         self.activation = activation
+        self.dropout = Dropout(dropout_prob)
 
     def forward(self, x):
         x = self.linear(x)
         x = self.activation(x)
+        x = self.dropout(x)
         return x
 
 #%% MLP2
 class MLP2(EnhancedModule):
-    def __init__(self, intermediate_dim, output_dim, activation = mish, final_activation = False):
+    def __init__(self, intermediate_dim, output_dim, activation = mish, dropout_prob = 0.2, final_activation = False):
         super().__init__()
         
         self.linear1 = LazyLinear(intermediate_dim)
         self.linear2 = LazyLinear(output_dim)
         self.activation = activation
         self.final_activation = final_activation
+        self.dropout = Dropout(dropout_prob)
 
         
     def forward(self, x):
         x = self.linear1(x)
         x = self.activation(x)
+        x = self.dropout(x)
         x = self.linear2(x)
         if self.final_activation is True:
             x = self.activation(x)
+            x = self.dropout(x)
         elif self.final_activation:
             x = self.final_activation(x)
+            x = self.dropout(x)
         
         return x
     
@@ -84,44 +90,37 @@ class Identity(EnhancedModule):
 
 #%% MLP2 Pooler
 class MLP2Pooler(EnhancedModule):
-    def __init__(self, intermediate_dim, output_dim):
+    def __init__(self, intermediate_dim, output_dim, dropout_prob = 0.2):
         super().__init__()
 
         self.mlp = MLP2(intermediate_dim, output_dim, final_activation = True)
+        self.dropout = Dropout(dropout_prob)
         
     def forward(self, x):
 
         x = self.mlp(x)
         x = max_pool(x)
+        x = self.dropout(x)
         
         return x
     
 #%% Attention Pooler
 class AttentionPooler(EnhancedModule):
-    def __init__(self, intermediate_dim, output_dim):
+    def __init__(self, intermediate_dim, output_dim, dropout_prob = 0.2):
         super().__init__()
 
         self.mlp = MLP2(intermediate_dim, output_dim, final_activation = True)
+        self.dropout = Dropout(dropout_prob)
         
     def forward(self, x):
 
         x = self.mlp(x)
         x = max_pool(x)
+        x = self.dropout(x)
         
         return x
 
 #%% Lazy Square Linear
-# class LazySquareLinear(LazyLinear):
-    
-#     def initialize_parameters(self, input) -> None:  
-#         if self.has_uninitialized_params():
-#             with torch.no_grad():
-#                 self.in_features = input.shape[-1]
-#                 self.weight.materialize((self.in_features, self.in_features))
-#                 if self.bias is not None:
-#                     self.bias.materialize((self.in_features,))
-#                 self.reset_parameters()  
-
 class LazySquareLinear(LazyModuleMixin, Linear):
 
     cls_to_become = Linear  # type: ignore[assignment]
@@ -153,9 +152,10 @@ class LazySquareLinear(LazyModuleMixin, Linear):
 
 #%% Gate
 class Gate(EnhancedModule):
-    def __init__(self):
+    def __init__(self, dropout_prob = 0.2):
         super().__init__()
         self.linear_focal = LazySquareLinear(bias = True)
+        self.dropout = Dropout(dropout_prob)
     
     # def _device(self):
     #     return next(self.linear_focal.parameters()).device
@@ -169,6 +169,9 @@ class Gate(EnhancedModule):
         gate = focal_transform + extra_transform
 
         gate = sigmoid(gate)
+
+        gate = self.dropout(gate)
+
         return gate * focal
 
 #%% EnhancedEmbedding

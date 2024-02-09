@@ -2,8 +2,8 @@
 # Add logic for producing Eval versions of predictions for scoring
 
 #%% libraries
-import os
 from os import path
+import inspect
 import re
 import torch
 from torch.nn import Embedding
@@ -31,26 +31,23 @@ class ELRELightningModule(LightningModule):
                  calculator_class, 
                  neg_to_pos_span_ratio, neg_to_pos_span_pair_ratio, neg_to_pos_relation_ratio,
                  span_sampling_probs, 
-                 max_span_length):
+                 max_span_length,
+                 dropout_prob):
         super().__init__()
         self.save_hyperparameters()
         
         self.task = task
 
         # gets type converters
-        self.entity_type_converter = torch.load(path.join('data', 'processed', dataset_name, lm_checkpoint, 'entity_class_converter.save'))
-        
-        # if self.task in ['rc', 'e2e']:
-        #     self.relation_type_converter = torch.load(path.join('data', 'processed', dataset_name, lm_checkpoint, 'relation_class_converter.save'))
+        self.entity_type_converter = torch.load(path.join('data', 'processed', dataset_name, 'entity_type_converter.save'))
 
-        self.relation_type_converter = torch.load(path.join('data', 'processed', dataset_name, lm_checkpoint, 'relation_class_converter.save'))
+        self.relation_type_converter = torch.load(path.join('data', 'processed', dataset_name, 'relation_type_converter.save'))
 
         # dynamically add number of classes to modeling configs so the user doesn't need to specify them
         if self.task in ['ner', 'e2e']:
             ner_config['config']['num_entity_classes'] = len(self.entity_type_converter)
         if self.task in ['rc', 'e2e']:
             rc_config['config']['num_relation_classes'] = len(self.relation_type_converter)
-           
             
             # if the task is multilabel, there should be no null class classifier, so remove one from the number of relation classes
             if rc_config['config']['is_multilabel']:
@@ -61,6 +58,9 @@ class ELRELightningModule(LightningModule):
 
         # allows language model to handle longer sequences
         self.expand_position_embeddings(1024)
+
+        # dropout probability
+        self.dropout_prob = dropout_prob
 
         # keep configs
         if self.task in ['ner', 'e2e']:
@@ -188,10 +188,16 @@ class ELRELightningModule(LightningModule):
             
             self._replace_string_with_def(class_info, 'class', ['spacy_modeling_classes', 'spacy_parameter_modules', 'torch.nn.functional'])
 
+            # adds dropout, if necessary
+            if self._uses_dropout(class_info['class']):
+                config = class_info['config']
+                config['dropout_prob'] = self.dropout_prob
+
             # Check if there's a 'config' key and process it
             config = class_info.get("config", {})
             for key, value in config.items():
                 config[key] = self.recursive_instantiate(value)
+
 
             # Instantiate the class with processed config
             return class_info['class'](**config)
@@ -203,7 +209,18 @@ class ELRELightningModule(LightningModule):
             return class_info['function']
         else:
             return class_info
+
+    @staticmethod
+    def _uses_dropout(cls):
+        # Get the signature of the class's __init__ method
+        init_signature = inspect.signature(cls.__init__)
         
+        # Get the parameters of the __init__ method
+        parameters = init_signature.parameters
+        
+        # Check if the argument_name is one of the parameters
+        return 'dropout_prob' in parameters
+
     def _instantiate_scorers(self, scorer_list):
         scorers = import_module('spacy_scorers')
         return [getattr(scorers, el) for el in scorer_list]
@@ -331,8 +348,7 @@ class ELRELightningModule(LightningModule):
 
         logits = self.ner(candidate_spans, token_embeddings)
         
-        predicted_spans = self.ner.predict(candidate_spans, logits, self.entity_type_converter)
-        predicted_mentions = self.ner.filter_nonentities(predicted_spans)
+        predicted_mentions = self.ner.predict(candidate_spans, logits, self.entity_type_converter)
         return predicted_mentions
 
     def cluster_training_step(self, example, token_embeddings):
@@ -357,17 +373,17 @@ class ELRELightningModule(LightningModule):
             print('no candidate span pairs')
             return 0
 
-    def cluster_inference_step(self, candidate_span_pairs, mentions, token_embeddings, doc):
+    def cluster_inference_step(self, candidate_span_pairs, mentions, token_embeddings):
         # print('cluster inference step')
         if candidate_span_pairs:
             
             logits = self.clusterer(candidate_span_pairs, token_embeddings)
 
-            predicted_span_pairs = self.clusterer.predict(candidate_span_pairs, logits)
+            predicted_coreferences = self.clusterer.predict(candidate_span_pairs, logits)
             
-            predicted_coreferences = self.clusterer.keep_coreferent_pairs(predicted_span_pairs)
+            # predicted_coreferences = self.clusterer.keep_coreferent_pairs(predicted_span_pairs)
             
-            predicted_entities = self.clusterer.cluster(mentions, predicted_coreferences, doc)
+            predicted_entities = self.clusterer.cluster(mentions, predicted_coreferences)
 
             return predicted_coreferences, predicted_entities
         else:
@@ -465,7 +481,7 @@ class ELRELightningModule(LightningModule):
 
         elif self.task == 'cluster':
             candidate_span_pairs = example.positive_span_pairs() + example.negative_span_pairs()
-            predicted_coreferences, predicted_entities = self.cluster_inference_step(candidate_span_pairs, example.doc._.mentions, token_embeddings, example.doc)
+            predicted_coreferences, predicted_entities = self.cluster_inference_step(candidate_span_pairs, example.doc._.mentions, token_embeddings)
 
         # rc     
         if self.task == 'e2e':
@@ -494,7 +510,7 @@ class ELRELightningModule(LightningModule):
         if self.task in ['cluster', 'e2e']:
             coref_scorers = dict()
             for el in self.coref_scorer_classes:
-                scorer = el(predicted_coreferences, example.positive_span_pairs())
+                scorer = el(predicted_coreferences, example.eval_span_pairs)
                 counts = scorer.performance_counts()
                 
                 class_name = el.__name__
@@ -544,17 +560,13 @@ class ELRELightningModule(LightningModule):
             self.validation_details.append(details)
         else:
             self.validation_details[-1].append(details) # non-1st epoch
-
+                 
     def validation_step(self, example, example_index):
         # if self.current_epoch < -1: #50:
         details = self.inference_step(example, example_index)
         
         self._update_details(details)
         # self.validation_details[-1].append(details)
-
-    def test_step(self, example, example_index):
-        details = self.inference_step(example, example_index)
-        self.test_details[-1].append(details)
 
     def _reset_calculators(self, calculator_dict):
         for value in calculator_dict.values():
