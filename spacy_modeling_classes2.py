@@ -18,17 +18,6 @@ from utils import mode, unlist
 def retrieve_token_embeddings_of_span(span, token_embeddings):
     return token_embeddings[span._.subword_indices[0]:span._.subword_indices[1]]
 
-def retrieve_token_embeddings_of_path(path, token_embeddings):
-    subword_indices = set()
-    for el in path:
-        subword_indices.update(range(*el._.subword_indices))
-
-    subword_indices = list(subword_indices)
-    return token_embeddings[subword_indices]
-
-
-              
-
 
 # def retrieve_token_embeddings_of_spans(spans, token_embeddings):
      
@@ -57,74 +46,7 @@ class SpanEmbedder(EnhancedModule):
                 pooled_embedding = self.token_pooler(span_token_embeddings)
                 pooled_embedding = pooled_embedding.squeeze(0)
             else:
-                pass 
-            # empty span
-            if not hasattr(self, 'pooled_embedding_size'):
-                self.pooled_embedding_size = pooled_embedding.size(-1)
-
-            return pooled_embedding
-        else: 
-            try:
-                zero_embedding = torch.zeros(self.pooled_embedding_size, device = 'cuda')
-            except:
-                zero_embedding = torch.zeros(self.pooled_embedding_size)
-            return zero_embedding
-
-    def forward(self, spans, token_embeddings, extra_embeddings = None):
-        token_embeddings = self.token_embedder(token_embeddings)
-
-        # empty span
-        empty_spans = list()
-        pooled_embeddings = list()
-        for i, el in enumerate(spans):
-            # if el:
-            pooled_embeddings.append(self._pooled_token_embedding(el, token_embeddings))
-            if not el:
-                empty_spans.append(i)
-           
-        pooled_embeddings = torch.stack(pooled_embeddings)
-
-        if extra_embeddings is not None:
-            pooled_embeddings = torch.cat((pooled_embeddings, extra_embeddings), dim = 1)
-
-        pooled_embeddings = self.dropout(pooled_embeddings)
-        span_embeddings = self.vector_embedder(pooled_embeddings)
-        
-        # empty span
-        if not hasattr(self, 'null_span_embedder'):
-            embedding_dim = span_embeddings.size(-1)
-            try: 
-                self.null_span_embedder = Embedding(1, embedding_dim, device = 'cuda')
-            except:
-                self.null_span_embedder = Embedding(1, embedding_dim)
-
-        # empty span
-        for i in empty_spans:
-            zero_index = torch.tensor(0, device = self._device())
-            span_embeddings[i] = self.null_span_embedder(zero_index)
-
-        span_embeddings = self.dropout(span_embeddings)
-
-        return span_embeddings
-    
-class PathEmbedder(EnhancedModule):
-    def __init__(self, token_embedder, token_pooler, vector_embedder, dropout_prob = 0.2):
-        super().__init__()
-
-        self.token_embedder = token_embedder
-        self.token_pooler = token_pooler
-        self.vector_embedder = vector_embedder
-        self.dropout = Dropout(dropout_prob)
-        
-
-    def _pooled_token_embedding(self, span, token_embeddings):
-        if span: # empty span
-            span_token_embeddings = retrieve_token_embeddings_of_path(span, token_embeddings)
-            if span_token_embeddings.size(0) > 0:
-                pooled_embedding = self.token_pooler(span_token_embeddings)
-                pooled_embedding = pooled_embedding.squeeze(0)
-            else:
-                pass 
+                pass
             # empty span
             if not hasattr(self, 'pooled_embedding_size'):
                 self.pooled_embedding_size = pooled_embedding.size(-1)
@@ -232,6 +154,7 @@ class Coreference(EnhancedModule):
                  num_coref_classes, coref_cutoff, dropout_prob = 0.2):
         super().__init__()
 
+        # need
         self.levenshtein_embedder = levenshtein_embedder
         self.levenshtein_gate = levenshtein_gate
         self.prediction_layer = LazyLinear(num_coref_classes)
@@ -378,170 +301,6 @@ class Coreference(EnhancedModule):
                 finished_clusters.append(cluster)
        
         return finished_clusters
-
-
-#%% DirectClusterer
-class DirectClusterer(EnhancedModule):
-    def __init__(self, 
-                 levenshtein_embedder, levenshtein_gate, span_embedder, 
-                 type_embedder, length_embedder, length_difference_embedder, 
-                #  span_pair_embedder, 
-                 num_coref_classes, coref_cutoff, dropout_prob = 0.2):
-        super().__init__()
-
-        self.levenshtein_embedder = levenshtein_embedder
-        self.levenshtein_gate = levenshtein_gate
-        self.prediction_layer = LazyLinear(num_coref_classes)
-
-        self.span_embedder = span_embedder
-        self.type_embedder = type_embedder
-        self.length_embedder = length_embedder
-        self.length_difference_embedder = length_difference_embedder
-
-        self.coref_cutoff = coref_cutoff
-        self.dropout = Dropout(dropout_prob)
-
-    def get_spans_from_span_pairs(self, span_pairs):
-        spans = set()
-        for el in span_pairs:
-            if isinstance(el, SpanPair): 
-                spans.update(el.spans)
-            elif isinstance(el, EvalSpanPair):
-                spans.update(el.mentions)
-
-        # spans = set.union(*[el.spans for el in span_pairs])
-
-        return list(spans)
-
-    def get_span2embedding(self, span_pairs, token_embeddings):
-        # individual span embeddings
-        spans = self.get_spans_from_span_pairs(span_pairs)
-
-        if self.length_embedder:
-            length_embeddings = self.length_embedder(spans)
-
-        if self.length_embedder:
-            span_embeddings = self.span_embedder(spans, token_embeddings, length_embeddings)
-        else:
-            span_embeddings = self.span_embedder(spans, token_embeddings)
-
-        # pair embeddings
-        span2embedding = dict(zip(spans, span_embeddings))
-
-        return span2embedding
-
-    def forward(self, span_pairs, token_embeddings):
-        
-        span2embedding = self.get_span2embedding(span_pairs, token_embeddings)
-
-        span1_embeddings = [span2embedding[el.span1] for el in span_pairs]
-        span2_embeddings = [span2embedding[el.span2] for el in span_pairs]
-
-        span1_embeddings = torch.stack(span1_embeddings)
-        span2_embeddings = torch.stack(span2_embeddings)
-
-        span_pair_embeddings = torch.cat((span1_embeddings, span2_embeddings), dim = 1)
-
-        # length difference embedding
-        if self.length_difference_embedder:
-            length_difference_embeddings = self.length_difference_embedder(span_pairs)
-
-            span_pair_embeddings = torch.cat((span_pair_embeddings, length_difference_embeddings), dim = 1)
-
-        if self.type_embedder:
-            type_embeddings = self.type_embedder(span_pairs)
-
-            span_pair_embeddings = torch.cat((span_pair_embeddings, type_embeddings), dim = 1)
-
-        # levenshtein
-        if self.levenshtein_embedder:
-            levenshtein_embeddings = self.levenshtein_embedder(span_pairs)
-
-            if self.levenshtein_gate: 
-                levenshtein_embeddings = self.levenshtein_gate(levenshtein_embeddings, span_pair_embeddings)
-
-            span_pair_embeddings = torch.cat((span_pair_embeddings, levenshtein_embeddings), dim = 1)
-
-        # span_pair_embeddings = self.span_pair_embedder(span_pair_embeddings)
-
-        span_pair_embeddings = self.dropout(span_pair_embeddings)
-
-        logits = self.prediction_layer(span_pair_embeddings)
-
-        return logits 
-
-    def get_gold_labels(self, span_pairs):
-        labels = [el.coref for el in span_pairs]
-        labels = torch.tensor(labels, device = self._device())
-        
-        return labels
-
-    def keep_coreferent_pairs(self, span_pairs):
-        return [el for el in span_pairs if el.coref == 1]
-
-    def predict(self, span_pairs, logits):
-
-        probs = softmax(logits, dim = 1) #sigmoid(logits)
-        coref_indices = torch.nonzero(probs[:,1] > self.coref_cutoff).squeeze()
-
-        eval_span_pairs = set()
-        for i, el in enumerate(span_pairs):
-            coref = int(i in coref_indices)
-            if coref:
-                eval_span_pairs.add(EvalSpanPair.from_span_pair(el, coref))
-
-        return eval_span_pairs
-    
-    def _get_objects_by_type(self, objects):
-    
-        object_dict = defaultdict(set)
-
-        for el in objects:
-            object_dict[el.label_].add(el)
-
-        return object_dict
-
-    def exhaustive_intratype_pairs(self, spans):
-        spans_by_type = self._get_objects_by_type(spans)
-        
-        span_pairs = set()
-        for class_, class_spans in spans_by_type.items():
-            span_pairs.update(set(SpanPair(el1, el2) for el1, el2 in combinations(class_spans, 2)))
-
-        return span_pairs
-    
-    def _get_singletons(self, mentions, coreferences):
-        coreferences = set(coreferences)
-
-        linked_mentions = self.get_spans_from_span_pairs(coreferences)  
-
-        mentions = [EvalMention.from_span(el) for el in mentions]
-        singletons = list(set(mentions) - set(linked_mentions))
- 
-        singletons = [EvalEntity.from_eval_mention(el) for el in singletons]
-
-        return singletons 
-
-    def cluster(self, mentions, coreferences):
-        
-        singletons = self._get_singletons(mentions, coreferences)
-        unfinished_clusters = [EvalEntity.from_eval_span_pair(el) for el in coreferences]
-        finished_clusters = singletons
-
-        while unfinished_clusters:
-            cluster = unfinished_clusters.pop()
-            for i, el in enumerate(unfinished_clusters):
-                combined = cluster.merge(el)
-                if combined:
-                    unfinished_clusters.pop(i)
-                    unfinished_clusters.append(combined)
-                    break
-            else:
-                finished_clusters.append(cluster)
-       
-        return finished_clusters
-
-
 
 #%% RC base class
 class BaseRelationClassifier(EnhancedModule):
@@ -772,5 +531,4 @@ class RelationClassifier(BaseRelationClassifier):
 
     def filter_nonrelations(self, relations):
         return set(el for el in relations if el.type)
-
 

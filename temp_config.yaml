@@ -1,34 +1,70 @@
-# Basic settings
+# lightning.pytorch==2.1.3
 seed_everything: 0
 trainer:
+  accelerator: gpu
+  strategy: auto
+  devices: auto
+  num_nodes: 1
+  precision: null
   # logger: true
   logger:
     class_path: lightning.pytorch.loggers.CSVLogger
     init_args:
-      save_dir: /home/ubuntu/DocRE
       name: lightning_logs
       version: null
-  accelerator: gpu
-  accumulate_grad_batches: 1
-  fast_dev_run: False #False #2 #50
-  max_epochs: 30 #2
-  check_val_every_n_epoch: 1000 # for blocking validation
-  # limit_val_batches: 0
-  # limit_train_batches: 5
-  num_sanity_val_steps: 0
   callbacks:
-    - class_path: lightning.pytorch.callbacks.ModelCheckpoint
-      init_args:
-        save_top_k: -1
-        every_n_epochs: 1
-        save_on_train_epoch_end: True
-
-
-# model config
+  - class_path: lightning.pytorch.callbacks.ModelCheckpoint
+    init_args:
+      dirpath: null
+      filename: null
+      monitor: null
+      verbose: false
+      save_last: null
+      save_top_k: -1
+      save_weights_only: false
+      mode: min
+      auto_insert_metric_name: true
+      every_n_train_steps: null
+      train_time_interval: null
+      every_n_epochs: 1
+      save_on_train_epoch_end: true
+      enable_version_counter: true
+  fast_dev_run: false
+  max_epochs: 30
+  min_epochs: null
+  max_steps: -1
+  min_steps: null
+  max_time: null
+  limit_train_batches: null
+  limit_val_batches: null
+  limit_test_batches: null
+  limit_predict_batches: null
+  overfit_batches: 0.0
+  val_check_interval: null
+  check_val_every_n_epoch: 1000
+  num_sanity_val_steps: 0
+  log_every_n_steps: null
+  enable_checkpointing: null
+  enable_progress_bar: null
+  enable_model_summary: null
+  accumulate_grad_batches: 1
+  gradient_clip_val: null
+  gradient_clip_algorithm: null
+  deterministic: null
+  benchmark: null
+  inference_mode: true
+  use_distributed_sampler: true
+  profiler: null
+  detect_anomaly: false
+  barebones: false
+  plugins: null
+  sync_batchnorm: false
+  reload_dataloaders_every_n_epochs: 0
+  default_root_dir: null
 model:
   dataset_name: BioRED
   lm_checkpoint: microsoft/BiomedNLP-BiomedBERT-base-uncased-abstract
-  task: 'e2e' # 'ner', 'cluster', 'rc', 'e2e'
+  task: cluster
   ner_config:
     class: NER
     config:
@@ -40,34 +76,34 @@ model:
       span_embedder:
         class: SpanEmbedder
         config:
-          token_embedder: 
+          token_embedder:
             class: Identity
             config: {}
-          token_pooler: 
+          token_pooler:
             function: max_pool
           vector_embedder:
             class: MLP1
-            config: 
-              output_dim: 128   
-      num_entity_classes: {} # to be filled in later    
+            config:
+              output_dim: 128
+      num_entity_classes: {}
   clusterer_config:
     class: Coreference
-    config: 
-      levenshtein_embedder: 
-          class: LevenshteinEmbedding
-          config:
-            num_embeddings: 500
-            embedding_dim: 16
+    config:
+      levenshtein_embedder:
+        class: LevenshteinEmbedding
+        config:
+          num_embeddings: 500
+          embedding_dim: 16
       levenshtein_gate:
         class: Gate
         config: {}
       span_embedder:
         class: SpanEmbedder
         config:
-          token_embedder: 
+          token_embedder:
             class: Identity
             config: {}
-          token_pooler: 
+          token_pooler:
             function: max_pool
           vector_embedder:
             class: Identity
@@ -87,35 +123,29 @@ model:
         config:
           num_embeddings: 1000
           embedding_dim: 32
-      # span_pair_embedder:
-      #   class: MLP2
-      #   config: 
-      #     intermediate_dim: 256
-      #     output_dim: 32
-      #     final_activation: True
       num_coref_classes: 2
       coref_cutoff: 0.5
   rc_config:
     class: RelationClassifier
     config:
-      span_embedder: 
+      span_embedder:
         class: SpanEmbedder
         config:
-          token_embedder: 
+          token_embedder:
             class: Identity
             config: {}
-          token_pooler: 
+          token_pooler:
             function: max_pool
           vector_embedder:
             class: Identity
             config: {}
-      intervening_span_embedder: 
+      intervening_span_embedder:
         class: SpanEmbedder
         config:
-          token_embedder: 
+          token_embedder:
             class: Identity
             config: {}
-          token_pooler: 
+          token_pooler:
             function: max_pool
           vector_embedder:
             class: Identity
@@ -124,17 +154,17 @@ model:
         class: MLP2Pooler
         config:
           intermediate_dim: 128
-          output_dim: 64      
-      type_embedder: 
+          output_dim: 64
+      type_embedder:
         class: TypeEmbedding
         config:
           num_embeddings: 10
           embedding_dim: 16
-      local_pooler: 
+      local_pooler:
         class: MLP2Pooler
         config:
           intermediate_dim: 128
-          output_dim: 64   
+          output_dim: 64
       token_distance_embedder:
         class: TokenDistanceEmbedding
         config:
@@ -145,41 +175,30 @@ model:
         config:
           num_embeddings: 64
           embedding_dim: 16
-      relation_embedder: 
+      relation_embedder:
         class: MLP1
         config:
           output_dim: 128
-      num_relation_classes: {} # to be filled in lightning module
-      is_multilabel: False
+      num_relation_classes: {}
+      is_multilabel: false
       rc_cutoff: 0.5
-  loss_coefficients: [1,1,1]
-  lm_learning_rate: 5e-5
-  learning_rate: 1e-3
+  loss_coefficients:
+  - 1
+  - 1
+  - 1
+  lm_learning_rate: 5.0e-05
+  learning_rate: 0.001
   ner_scorer_classes:
-    - TypedLocationNERScorer
-    # - TypedStringNERScorer
-    # - UntypedLocationNERScorer
-    # - UntypedStringNERScorer
+  - TypedLocationNERScorer
   coref_scorer_classes:
-    - TypedLocationCorefScorer
-  entity_scorer_classes: 
-    - TypedLocationStrictEntityScorer
-    # - TypedStringStrictClusterScorer
-    # - UntypedLocationStrictClusterScorer
-    # - UntypedStringStrictClusterScorer
-    - TypedLocationRelaxedEntityScorer
-    # - TypedStringRelaxedClusterScorer
-    # - UntypedLocationRelaxedClusterScorer
-    # - UntypedStringRelaxedClusterScorer
-  rc_scorer_classes: 
-    - TypedLocationStrictRCScorer
-    # - TypedStringStrictRCScorer
-    - UntypedLocationStrictRCScorer
-    # - UntypedStringStrictRCScorer
-    - TypedLocationRelaxedRCScorer
-    # - TypedStringRelaxedRCScorer
-    # - UntypedLocationRelaxedRCScorer
-    # - UntypedStringRelaxedRCScorer
+  - TypedLocationCorefScorer
+  entity_scorer_classes:
+  - TypedLocationStrictEntityScorer
+  - TypedLocationRelaxedEntityScorer
+  rc_scorer_classes:
+  - TypedLocationStrictRCScorer
+  - UntypedLocationStrictRCScorer
+  - TypedLocationRelaxedRCScorer
   calculator_class: Calculator
   neg_to_pos_span_ratio: 11
   neg_to_pos_span_pair_ratio: 9
@@ -188,12 +207,8 @@ model:
     multi_shift: 0.5
     short: 0.5
   max_span_length: 10
-  dropout_prob: 0.5
-
-# data config
+  dropout_prob: 0.2
 data:
   dataset_name: BioRED
   lm_checkpoint: microsoft/BiomedNLP-BiomedBERT-base-uncased-abstract
-  train_split: 'train'
-  inference_split: 'validation'
 ckpt_path: null

@@ -70,6 +70,15 @@
             "console": "integratedTerminal",
             "env": {"PYDEVD_WARN_EVALUATION_TIMEOUT": "500"}
         },
-        
+        {
+            "name": "Spacy Validation w_float",
+            "type": "python",
+            "request": "launch",
+            "program": "spacy_main.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["validate", "--config", "ELRE_spacy_config.yaml", "--ckpt_path", "lightning_logs/BioRED_cluster_p0.2/config.yaml", "--model.clusterer_config.config.coref_cutoff", "0.4"],
+            "env": {"CUDA_LAUNCH_BLOCKING": "1"}
+        }
     ]
 }

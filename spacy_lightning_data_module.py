@@ -8,10 +8,12 @@ from spacy_data_classes import Dataset
 
 #%% Data Module
 class ELREDataModule(LightningDataModule):
-    def __init__(self, dataset_name, lm_checkpoint):
+    def __init__(self, dataset_name, lm_checkpoint, train_split = 'train', inference_split = 'validation'):
         super().__init__()
         self.dataset_name = dataset_name
         self.lm_checkpoint = lm_checkpoint
+        self.train_split = train_split
+        self.inference_split = inference_split
 
     def _get_dataset_dir(self, dataset_name, lm_checkpoint):
         return path.join(dataset_name, lm_checkpoint)
@@ -19,8 +21,8 @@ class ELREDataModule(LightningDataModule):
     def setup(self, stage = None):
         nlp = Dataset.load_nlp(self.dataset_name)
 
-        self.train_data = Dataset.load(self.dataset_name, self.lm_checkpoint, 'train', nlp)
-        self.validation_data = Dataset.load(self.dataset_name, self.lm_checkpoint, 'validation', nlp)
+        self.train_data = Dataset.load(self.dataset_name, self.lm_checkpoint, self.train_split, nlp)
+        self.validation_data = Dataset.load(self.dataset_name, self.lm_checkpoint, self.inference_split, nlp)
         self.test_data = Dataset.load(self.dataset_name, self.lm_checkpoint, 'test', nlp)
 
         try:
