@@ -192,8 +192,10 @@ function zip_performance() {
     # Create an archive from the temporary directory contents
     
     if [ $# -eq 1 ]; then
+        echo "1 arg"
         tar -czvf "${RUN_DIR}/${RUN_NAME}.tar.gz" -C "$TEMP_DIR" .
     else
+        echo "2 args"
         tar -czvf "${RUN_DIR}/${RUN_NAME}_coref_cutoff_${COREF_CUTOFF}.tar.gz" -C "$TEMP_DIR" .
     fi
 
@@ -225,7 +227,7 @@ function validate_checkpoints() {
         VALIDATION_DIR="${VALIDATION_DIR}_coref_cutoff_${COREF_CUTOFF}"
         cp $CONFIG_PATH temp_config.yaml
         # yq e ".model.clusterer_config.config.coref_cutoff = ${COREF_CUTOFF}" -i temp_config.yaml
-        yq write -i temp_config.yaml "model.clusterer_config.config.coref_cutoff" "${COREF_CUTOFF}"
+        yq -i ".model.clusterer_config.config.coref_cutoff = ${COREF_CUTOFF}" temp_config.yaml
     fi
 
     mkdir -p "$VALIDATION_DIR"
@@ -259,33 +261,13 @@ function validate_checkpoints() {
         rm temp_config.yaml
     fi
 
-    echo "starting zip stuff"
-    # Temporary directory for flattening the file structure
-    
-    TEMP_DIR="temp_json_files"
-    mkdir -p "$TEMP_DIR"
-
-    echo "made temp dir"
-
-    # Find and copy .json files to the temporary directory
-    find "$VALIDATION_DIR" -name "*.json" -exec cp {} "$TEMP_DIR/" \;
-
-    echo "found"
-
-    # Create an archive from the temporary directory contents
     
     if [ $# -eq 1 ]; then
-        tar -czvf "${RUN_DIR}/${RUN_NAME}.tar.gz" -C "$TEMP_DIR" .
+        zip_perfomance $RUN_NAME
     else
-        tar -czvf "${RUN_DIR}/${RUN_NAME}_coref_cutoff_${COREF_CUTOFF}.tar.gz" -C "$TEMP_DIR" .
+        zip_perfomance $RUN_NAME $COREF_CUTOFF
     fi
-
-    echo "zipped"
-
-    # Clean up: Remove the temporary directory
-    rm -rf "$TEMP_DIR"
-
-    echo "finished"
+    
 }
 
 

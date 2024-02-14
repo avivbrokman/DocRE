@@ -13,22 +13,22 @@ trainer:
       name: lightning_logs
       version: null
   callbacks:
-  - class_path: lightning.pytorch.callbacks.ModelCheckpoint
-    init_args:
-      dirpath: null
-      filename: null
-      monitor: null
-      verbose: false
-      save_last: null
-      save_top_k: -1
-      save_weights_only: false
-      mode: min
-      auto_insert_metric_name: true
-      every_n_train_steps: null
-      train_time_interval: null
-      every_n_epochs: 1
-      save_on_train_epoch_end: true
-      enable_version_counter: true
+    - class_path: lightning.pytorch.callbacks.ModelCheckpoint
+      init_args:
+        dirpath: null
+        filename: null
+        monitor: null
+        verbose: false
+        save_last: null
+        save_top_k: -1
+        save_weights_only: false
+        mode: min
+        auto_insert_metric_name: true
+        every_n_train_steps: null
+        train_time_interval: null
+        every_n_epochs: 1
+        save_on_train_epoch_end: true
+        enable_version_counter: true
   fast_dev_run: false
   max_epochs: 30
   min_epochs: null
@@ -124,7 +124,7 @@ model:
           num_embeddings: 1000
           embedding_dim: 32
       num_coref_classes: 2
-      coref_cutoff: 0.5
+      coref_cutoff: 0.3
   rc_config:
     class: RelationClassifier
     config:
@@ -183,22 +183,22 @@ model:
       is_multilabel: false
       rc_cutoff: 0.5
   loss_coefficients:
-  - 1
-  - 1
-  - 1
+    - 1
+    - 1
+    - 1
   lm_learning_rate: 5.0e-05
   learning_rate: 0.001
   ner_scorer_classes:
-  - TypedLocationNERScorer
+    - TypedLocationNERScorer
   coref_scorer_classes:
-  - TypedLocationCorefScorer
+    - TypedLocationCorefScorer
   entity_scorer_classes:
-  - TypedLocationStrictEntityScorer
-  - TypedLocationRelaxedEntityScorer
+    - TypedLocationStrictEntityScorer
+    - TypedLocationRelaxedEntityScorer
   rc_scorer_classes:
-  - TypedLocationStrictRCScorer
-  - UntypedLocationStrictRCScorer
-  - TypedLocationRelaxedRCScorer
+    - TypedLocationStrictRCScorer
+    - UntypedLocationStrictRCScorer
+    - TypedLocationRelaxedRCScorer
   calculator_class: Calculator
   neg_to_pos_span_ratio: 11
   neg_to_pos_span_pair_ratio: 9
