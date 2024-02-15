@@ -97,8 +97,8 @@
             "program": "spacy_main.py",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["validate", "--config", "lightning_logs/BioRED_e2e_p0.2/config.yaml", "--ckpt_path", "lightning_logs/BioRED_e2e_p0.2/checkpoints/epoch=1-step=800.ckpt", "--trainer.logger.init_args.save_dir", "/home/ubuntu/DocRE"],
+            "args": ["validate", "--config", "lightning_logs/BioRED_e2e_mlp2/config.yaml", "--ckpt_path", "lightning_logs/BioRED_e2e_mlp2/checkpoints/epoch=14-step=6000.ckpt", "--trainer.logger.init_args.save_dir", "/home/ubuntu/DocRE", "--trainer.logger.init_args.name", "lightning_logs/BioRED_e2e_mlp2/validation", "--trainer.logger.init_args.version", "epoch_0"],
             "env": {"CUDA_LAUNCH_BLOCKING": "1"}
-        }
+        }    
     ]
 }

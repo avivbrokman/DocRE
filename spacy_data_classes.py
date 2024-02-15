@@ -12,7 +12,6 @@ import torch
 import spacy
 from spacy.util import compile_infix_regex, compile_suffix_regex, compile_prefix_regex
 from spacy.vocab import Vocab
-from copy import deepcopy
 
 from spacy.tokens import Token, Span, SpanGroup, Doc
 
@@ -126,7 +125,6 @@ Token.set_extension("sentence_index", default = None)
 Span.set_extension("id", default = list())
 # Span.set_extension("sentence_index", default = None)
 Span.set_extension("subword_indices", default = None)
-Span.set_extension("gold_label", default = None)
 
 Doc.set_extension("mentions", default = set())
 Doc.set_extension("relations", default = set())
@@ -222,6 +220,19 @@ class SpanUtils:
     @staticmethod
     def deserialize_spans(obj, attr, value):
         setattr(obj, attr, [obj.char_span(start, end, label = label) for start, end, label in value])
+
+    @staticmethod
+    def duplicate_spans(obj):
+        if isinstance(obj, list):
+            return [SpanUtils.duplicate_spans(el) for el in obj]
+        if isinstance(obj, set):
+            return {SpanUtils.duplicate_spans(el) for el in obj}
+        elif isinstance(obj, Span):
+            dup = obj.doc[obj.start:obj.end]
+            dup._.subword_indices = obj._.subword_indices
+            dup.label_ = obj.label_
+            dup._.id = obj._.id
+            return dup
 
         
 
@@ -320,6 +331,13 @@ class EvalMention:
             type_ = span.label_
 
         return cls(start_char, end_char, text, type_, id_)
+    
+    def to_span(self, doc):
+        span = doc.char_span(self.start_char, self.end_char)
+        span.label_ = self.type
+        span._.id = self.id
+        SpanUtils.get_subword_indices(span)
+        return span 
 
 
     # @classmethod
@@ -425,8 +443,19 @@ class EvalEntity:
  
         return cls(mentions, type_, id_)
     
+    #e2e inference
+    def to_span_group(self, doc):
+        spans = {el.to_span(doc) for el in self.mentions}
+        span_group = SpanGroup(doc,
+                               name = self.id[0] if self.id else '',
+                               attrs = {'id': self.id, 'type': self.type},
+                               spans = spans
+                               )
+        return span_group
+    
     def eval_span_pairs(self):
         return set(EvalSpanPair(men1, men2, 1) for men1, men2 in combinations(self.mentions, 2)) 
+    
 
 #%% EvalRelation
 @dataclass
@@ -436,10 +465,13 @@ class EvalRelation:
     type: str
 
     def __eq__(self, other):
-        return (self.head, self.tail, self.type) == (other.head, other.tail, other.type)
+        return (self.head, self.tail, self.type) == (other.head, other.tail, other.type) 
 
     def __hash__(self):
         return hash((self.head, self.tail, self.type))  
+
+    def __post_init__(self):
+        self.entities = {self.head, self.tail}
 
     @classmethod
     def from_relation(cls, relation, type_ = None):
@@ -537,7 +569,7 @@ class SpanPair:
 
         return path_union
     
-#%% Entity
+#%% EntityUtils
 class EntityUtils:
     
     @staticmethod
@@ -552,6 +584,53 @@ class EntityUtils:
     def neg_span_pairs(cls, entity, others):
         return unlist([cls.neg_span_pairs_entity(entity, el) for el in others])    
 
+    
+    @staticmethod
+    def from_span(span):
+        spans = {span}
+        type_ = span.label_
+        id_ = span._.id
+        span_group = SpanGroup(span.doc, 
+                               name = id_,
+                               attrs = {'id': id_, 'type': type_},
+                               spans = spans
+                               )
+        return span_group
+
+    @staticmethod
+    def from_span_pair(span_pair):
+        spans = span_pair.spans
+        type_ = mode([el.type for el in spans])
+        id_ = mode(unlist([el.id for el in spans]))
+        doc = list(spans)[0].doc
+        span_group = SpanGroup(doc, 
+                               name = id_,
+                               attrs = {'id': id_, 'type': type_},
+                               spans = spans
+                               )
+        return span_group
+    
+    
+    @staticmethod
+    def merge(entity1, entity2):
+        self_offsets = {(el.start_char, el.end_char) for el in entity1.mentions}
+        other_offsets = {(el.start_char, el.end_char) for el in entity2.mentions}
+
+        if self_offsets & other_offsets:
+        
+            mentions = entity1.spans | entity2.spans
+            type_ = mode([el.type for el in mentions])
+            id_ = mode(unlist([el.id for el in mentions]))
+
+            span_group = SpanGroup(entity1.doc, 
+                                   name = id_,
+                                   attrs = {'id': id_, 'type': type_},
+                                   spans = mentions
+                                   )
+
+            return span_group
+        else:
+            return False
     
             
 #%% Relation
@@ -867,8 +946,8 @@ class Example:
                     SpanUtils.get_subword_indices(span)
                     if not SpanUtils.has_no_subwords(span) and (span.start, span.end) not in mention_indices:
                         candidate_spans.add(span)
-            
-        return candidate_spans
+        candidate_spans = SpanUtils.duplicate_spans(candidate_spans)
+        return candidate_spans #e2e inference
     
     # For Coref training
     def positive_span_pairs(self):

@@ -373,7 +373,7 @@ class ELRELightningModule(LightningModule):
             print('no candidate span pairs')
             return 0
 
-    def cluster_inference_step(self, candidate_span_pairs, mentions, token_embeddings):
+    def cluster_inference_step(self, candidate_span_pairs, mentions, token_embeddings): #e2e inference
         # print('cluster inference step')
         if candidate_span_pairs:
             
@@ -383,9 +383,9 @@ class ELRELightningModule(LightningModule):
             
             # predicted_coreferences = self.clusterer.keep_coreferent_pairs(predicted_span_pairs)
             
-            predicted_entities = self.clusterer.cluster(mentions, predicted_coreferences)
+            predicted_eval_entities = self.clusterer.cluster(mentions, predicted_coreferences)
 
-            return predicted_coreferences, predicted_entities
+            return predicted_coreferences, predicted_eval_entities
         else:
             return set(), set()
     
@@ -477,11 +477,13 @@ class ELRELightningModule(LightningModule):
         # clustering
         if self.task == 'e2e':
             candidate_span_pairs = self.clusterer.exhaustive_intratype_pairs(predicted_mentions)
-            predicted_coreferences, predicted_entities = self.cluster_inference_step(candidate_span_pairs, predicted_mentions, token_embeddings, example.doc)
+            predicted_eval_coreferences, predicted_eval_entities = self.cluster_inference_step(candidate_span_pairs, predicted_mentions, token_embeddings)
+            predicted_entities = self.clusterer.get_spacy_version(predicted_eval_entities, example.doc)
+
 
         elif self.task == 'cluster':
             candidate_span_pairs = example.positive_span_pairs() + example.negative_span_pairs()
-            predicted_coreferences, predicted_entities = self.cluster_inference_step(candidate_span_pairs, example.doc._.mentions, token_embeddings)
+            predicted_eval_coreferences, predicted_eval_entities = self.cluster_inference_step(candidate_span_pairs, example.doc._.mentions, token_embeddings)
 
         # rc     
         if self.task == 'e2e':
@@ -494,13 +496,19 @@ class ELRELightningModule(LightningModule):
             # candidate_relations = self.filter_invalid_combination_BioRED(candidate_relations)
             predicted_relations = self.rc_inference_step(candidate_relations, token_embeddings)
 
-                
+        
+        # get eval versions
+        if self.task in ['ner', 'e2e']:
+            predicted_eval_mentions = self.ner.get_eval_version(predicted_mentions)
+            
+
+
         # example performance
         # print('step performance')
         if self.task in ['ner', 'e2e']:
             ner_scorers = dict()
             for el in self.ner_scorer_classes:
-                scorer = el(predicted_mentions, set(example.eval_mentions))
+                scorer = el(predicted_eval_mentions, set(example.eval_mentions))
                 counts = scorer.performance_counts()
                 
                 class_name = el.__name__
@@ -510,7 +518,7 @@ class ELRELightningModule(LightningModule):
         if self.task in ['cluster', 'e2e']:
             coref_scorers = dict()
             for el in self.coref_scorer_classes:
-                scorer = el(predicted_coreferences, example.eval_span_pairs)
+                scorer = el(predicted_eval_coreferences, example.eval_span_pairs)
                 counts = scorer.performance_counts()
                 
                 class_name = el.__name__
@@ -518,7 +526,7 @@ class ELRELightningModule(LightningModule):
                 self.coref_performance_calculators[class_name].update(counts)
             entity_scorers = dict()
             for el in self.entity_scorer_classes:
-                scorer = el(predicted_entities, example.eval_entities)
+                scorer = el(predicted_eval_entities, example.eval_entities)
                 counts = scorer.performance_counts()
                 
                 class_name = el.__name__

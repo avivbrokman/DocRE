@@ -129,5 +129,9 @@ function validate_checkpoints() {
 # zip_performance "BioRED_cluster_p0.2" 0.7
 
 # validate_checkpoints "BioRED_e2e_p0.01"
-validate_checkpoints "BioRED_e2e_p0.2"
+# validate_checkpoints "BioRED_ner_mlp2"
+# validate_checkpoints "BioRED_cluster_mlp2"
+# validate_checkpoints "BioRED_rc_mlp2"
+validate_checkpoints "BioRED_e2e_mlp2"
+# validate_checkpoints "BioRED_ner_mlp2"
 # validate_checkpoints "BioRED_e2e_p0.5"

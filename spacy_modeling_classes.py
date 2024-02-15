@@ -4,11 +4,10 @@
 import torch
 from torch.nn import LazyLinear, Embedding, Dropout
 from torch.nn.functional import sigmoid, softmax
-from copy import deepcopy
 from collections import defaultdict
 from itertools import combinations, product
 
-from spacy_data_classes import SpanPair, SpanGroup, Relation, EvalMention, EvalSpanPair, EvalEntity, EvalRelation
+from spacy_data_classes import SpanPair, SpanGroup, Relation, EvalMention, EvalSpanPair, EvalEntity, EvalRelation, SpanUtils
 from spacy_parameter_modules import EnhancedModule
 
 from utils import mode, unlist
@@ -210,18 +209,24 @@ class NER(EnhancedModule):
         return labels
 
     def predict(self, spans, logits, entity_type_converter):
-        # entity_converter = spans[0].parent_example.parent_dataset.entity_converter
-        
+        spans = SpanUtils.duplicate_spans(spans)
+
         type_indices = torch.argmax(logits, dim = 1)
         
-        
-        predicted_mentions = set()
+        mentions = set()
+        # eval_mentions = set()
         for i, el in enumerate(spans):
             type_ = entity_type_converter.index2class(type_indices[i])
             if type_:
-                predicted_mentions.add(EvalMention.from_span(el, type_))
+                el.label_ = type_
+                mentions.add(el)
+                # eval_mentions.add(EvalMention.from_span(el, type_))
 
-        return predicted_mentions
+        return mentions#, eval_mentions
+    
+    def get_eval_version(self, spans):
+        return {EvalMention.from_span(el) for el in spans}
+
 
 #%% coreference
 class Coreference(EnhancedModule):
@@ -322,13 +327,13 @@ class Coreference(EnhancedModule):
         probs = softmax(logits, dim = 1) #sigmoid(logits)
         coref_indices = torch.nonzero(probs[:,1] > self.coref_cutoff).squeeze()
 
-        eval_span_pairs = set()
+        eval_coreferences = set()
         for i, el in enumerate(span_pairs):
             coref = int(i in coref_indices)
             if coref:
-                eval_span_pairs.add(EvalSpanPair.from_span_pair(el, coref))
+                eval_coreferences.add(EvalSpanPair.from_span_pair(el, coref))
 
-        return eval_span_pairs
+        return eval_coreferences
     
     def _get_objects_by_type(self, objects):
     
@@ -376,8 +381,13 @@ class Coreference(EnhancedModule):
                     break
             else:
                 finished_clusters.append(cluster)
-       
+
         return finished_clusters
+    
+    def get_spacy_version(self, eval_entities, doc):
+        return {el.to_span_group(doc) for el in eval_entities}
+    
+    
 
 
 #%% DirectClusterer

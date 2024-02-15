@@ -258,9 +258,9 @@ class ELRELightningModule(LightningModule):
             
             predicted_coreferences = self.clusterer.keep_coreferent_pairs(predicted_span_pairs)
             
-            predicted_clusters = self.clusterer.cluster(mentions, predicted_coreferences)
+            predicted_eval_clusters = self.clusterer.cluster(mentions, predicted_coreferences)
 
-            return predicted_coreferences, predicted_clusters
+            return predicted_coreferences, predicted_eval_clusters
         else:
             return set(), set()
     
