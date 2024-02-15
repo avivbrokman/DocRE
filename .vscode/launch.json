@@ -79,6 +79,26 @@
             "justMyCode": true,
             "args": ["validate", "--config", "ELRE_spacy_config.yaml", "--ckpt_path", "lightning_logs/BioRED_cluster_p0.2/config.yaml", "--model.clusterer_config.config.coref_cutoff", "0.4"],
             "env": {"CUDA_LAUNCH_BLOCKING": "1"}
+        },
+        {
+            "name": "validation check logits",
+            "type": "python",
+            "request": "launch",
+            "program": "spacy_main.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["validate", "--config", "lightning_logs/BioRED_cluster_p0.2/config.yaml", "--ckpt_path", "lightning_logs/BioRED_cluster_p0.2/checkpoints/epoch=29-step=12000.ckpt", "--trainer.logger.init_args.save_dir", "$(pwd)"],
+            "env": {"CUDA_LAUNCH_BLOCKING": "1"}
+        },
+        {
+            "name": "validation test",
+            "type": "python",
+            "request": "launch",
+            "program": "spacy_main.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["validate", "--config", "lightning_logs/BioRED_e2e_p0.2/config.yaml", "--ckpt_path", "lightning_logs/BioRED_e2e_p0.2/checkpoints/epoch=1-step=800.ckpt", "--trainer.logger.init_args.save_dir", "/home/ubuntu/DocRE"],
+            "env": {"CUDA_LAUNCH_BLOCKING": "1"}
         }
     ]
 }

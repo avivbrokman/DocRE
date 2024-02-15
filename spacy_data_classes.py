@@ -126,6 +126,7 @@ Token.set_extension("sentence_index", default = None)
 Span.set_extension("id", default = list())
 # Span.set_extension("sentence_index", default = None)
 Span.set_extension("subword_indices", default = None)
+Span.set_extension("gold_label", default = None)
 
 Doc.set_extension("mentions", default = set())
 Doc.set_extension("relations", default = set())
@@ -221,6 +222,8 @@ class SpanUtils:
     @staticmethod
     def deserialize_spans(obj, attr, value):
         setattr(obj, attr, [obj.char_span(start, end, label = label) for start, end, label in value])
+
+        
 
 
 #%% Saving utils
