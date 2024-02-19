@@ -15,7 +15,7 @@ from importlib import import_module
 from random import sample
 
 # from parameter_modules import EnhancedEmbedding
-from spacy_data_classes import SpanUtils
+from spacy_data_classes import SpanUtils, SpanPair
 from utils import save_json
 
 #%% body
@@ -332,6 +332,7 @@ class ELRELightningModule(LightningModule):
             loss = cross_entropy(logits, gold_labels) #nll_loss(logits, gold_labels)
         
             return loss
+            
         else:
             return 0
 
@@ -365,8 +366,9 @@ class ELRELightningModule(LightningModule):
             logits = self.clusterer(candidate_span_pairs, token_embeddings)
             gold_labels = self.clusterer.get_gold_labels(candidate_span_pairs)
 
-            loss = cross_entropy(logits, gold_labels) 
-            # loss = nll_loss(logits, gold_labels)
+            # loss = cross_entropy(logits, gold_labels) 
+            loss = binary_cross_entropy_with_logits(logits[:,1], gold_labels.float()) 
+            # loss = cross_entropy(logits, gold_labels) 
 
             return loss
         else: 
@@ -483,6 +485,7 @@ class ELRELightningModule(LightningModule):
 
         elif self.task == 'cluster':
             candidate_span_pairs = example.positive_span_pairs() + example.negative_span_pairs()
+            candidate_span_pairs = SpanPair.filter_unequal_types(candidate_span_pairs)
             predicted_eval_coreferences, predicted_eval_entities = self.cluster_inference_step(candidate_span_pairs, example.doc._.mentions, token_embeddings)
 
         # rc     

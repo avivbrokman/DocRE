@@ -139,12 +139,29 @@ class RelaxedScorer(MulticlassScorer):
         intersection = predicted_entity.mentions & gold_entity.mentions
         return len(intersection) > len(predicted_entity)/2
 
-    def _relation_equality(self, predicted_relation, gold_relation):
+    def _entity_pair_equality_aligned(self, predicted_relation, gold_relation):
         if not self._entity_equality(predicted_relation.head, gold_relation.head):
             return False
         if not self._entity_equality(predicted_relation.tail, gold_relation.tail):
             return False
         return True
+    
+    def _entity_pair_equality_reversed(self, predicted_relation, gold_relation):
+        if not self._entity_equality(predicted_relation.head, gold_relation.tail):
+            return False
+        if not self._entity_equality(predicted_relation.tail, gold_relation.head):
+            return False
+        return True
+
+    def _relation_equality(self, predicted_relation, gold_relation, is_typed):
+        if is_typed:
+            if not self._equal_type(predicted_relation, gold_relation):
+                return False
+        if self._entity_pair_equality_aligned(predicted_relation, gold_relation):
+            return True
+        if self._entity_pair_equality_reversed(predicted_relation, gold_relation):
+            return True
+        return False
     
     def _predicted_entity_in_gold(self, predicted_entity, is_typed):
         for el in self.gold:
@@ -158,12 +175,8 @@ class RelaxedScorer(MulticlassScorer):
 
     def _predicted_relation_in_gold(self, predicted_relation, is_typed):
         for el in self.gold:
-            if is_typed:
-                if self._relation_equality(predicted_relation, el) and self._equal_type(predicted_relation, el):
-                    return el
-            else:
-                if self._relation_equality(predicted_relation, el):
-                    return el
+            if self._relation_equality(predicted_relation, el, is_typed):
+                return el
         return False
         
     def score(self, is_typed, entity_or_relation):

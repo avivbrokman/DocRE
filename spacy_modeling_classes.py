@@ -324,7 +324,8 @@ class Coreference(EnhancedModule):
 
     def predict(self, span_pairs, logits):
 
-        probs = softmax(logits, dim = 1) #sigmoid(logits)
+        probs = sigmoid(logits)
+        # probs = softmax(logits, dim = 1) #sigmoid(logits)
         coref_indices = torch.nonzero(probs[:,1] > self.coref_cutoff).squeeze()
 
         eval_coreferences = set()

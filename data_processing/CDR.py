@@ -151,7 +151,8 @@ tokenizer_modifications = [tokenize_dash,
                            ]
 
 nlp = TokenizerModification.modify(nlp, tokenizer_modifications)
-nlp = TokenizerModification.remove_final_period_special_rules(nlp)
+# nlp = TokenizerModification.remove_final_period_special_rules(nlp)
+nlp = TokenizerModification.remove_middle_period_rules(nlp)
 
 
 # load dataset from hugginface
@@ -217,8 +218,8 @@ print('\n validation dataset \n')
 validation_data = Dataset(validation_data, nlp, tokenizer, entity_types, relation_types)
 print('\n test dataset \n')
 test_data = Dataset(test_data, nlp, tokenizer, entity_types, relation_types)
-# print('parsing train + validation dataset')
-# train_validation_data = Dataset(train_validation_data, nlp, tokenizer, entity_types, relation_types)
+print('parsing train + validation dataset')
+train_validation_data = Dataset(train_validation_data, nlp, tokenizer, entity_types, relation_types)
 
 #%% More processing
 # relation_combinations_train = train_data.analyze_relations()
@@ -246,6 +247,6 @@ Dataset.save_nlp(nlp, dataset_name)
 train_data.save(dataset_name, checkpoint, 'train')
 validation_data.save(dataset_name, checkpoint, 'validation')
 test_data.save(dataset_name, checkpoint, 'test')
-# train_validation_data.save(output_data_path, 'train_validation')
+train_validation_data.save(dataset_name, checkpoint, 'train_validation')
 
 

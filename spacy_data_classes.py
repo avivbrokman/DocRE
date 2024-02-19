@@ -17,6 +17,8 @@ from spacy.tokens import Token, Span, SpanGroup, Doc
 
 from utils import unlist, mode, parentless_print, make_dir
 
+# def generalized_lt(obj1, obj2, attr_names):
+#     if self
 
 #%% modify tokenizer
 @dataclass
@@ -59,6 +61,25 @@ class TokenizerModification:
         keys_to_remove = [key for key in nlp.tokenizer.rules.keys() if pattern.match(key)]
         for key in keys_to_remove:
             del nlp.tokenizer.rules[key]
+
+        return nlp
+
+    @staticmethod
+    def remove_middle_period_rules(nlp):
+        # Preserve the original infix patterns
+        original_infixes = nlp.Defaults.infixes
+        
+        # Exclude periods from infix patterns to avoid splitting at periods within words
+        modified_infixes = tuple(infix for infix in original_infixes if infix != r'\.')
+        
+        # Add an exception for periods within words, e.g., 'p.Y67X'
+        modified_infixes += (r'(?=[0-9a-zA-Z])\.(?=[0-9a-zA-Z])',)
+
+        # Compile the modified infix patterns
+        infix_regex = compile_infix_regex(modified_infixes)
+        
+        # Update the tokenizer with the new infix patterns
+        nlp.tokenizer.infix_finditer = infix_regex.finditer
 
         return nlp
 
@@ -312,6 +333,20 @@ class EvalMention:
     def __hash__(self):
         return hash((self.start_char, self.end_char, self.type))
 
+    def __lt__(self, other):
+        if self.start_char < other.start_char:
+            return True
+        elif self.start_char == other.start_char:
+            if self.end_char < other.end_char:
+                return True
+            elif self.end_char == other.end_char:
+                return self.type < other.type
+        return False
+    
+
+
+            
+
     @classmethod
     def from_annotation(cls, annotation):
         start_char, end_char = SpanUtils.char_indices(annotation)
@@ -356,14 +391,14 @@ class EvalSpanPair:
     # type: str
 
     def __post_init__(self):
-        self.mentions = set([self.mention1, self.mention2])
+        self.mentions = {self.mention1, self.mention2}
 
     def __hash__(self):
-        return hash((tuple(self.mentions), self.coref))
+        return hash((tuple(sorted(self.mentions)), self.coref))
     
     def __eq__(self, other):
         return self.coref == other.coref and self.mentions == other.mentions
-
+        
     @classmethod
     def from_span_pair(cls, span_pair, coref = None):
         mention1 = EvalMention.from_span(span_pair.span1)
@@ -382,12 +417,20 @@ class EvalEntity:
     mentions: set[EvalMention]
     type: str
     id: str
-    
+
     def __eq__(self, other):
         return (self.mentions, self.type) == (other.mentions, other.type)
 
     def __hash__(self):
-        return hash((tuple(self.mentions), self.type))    
+        return hash((tuple(sorted(self.mentions)), self.type))    
+
+    def __lt__(self, other):
+        for self_el, other_el in zip(self.mentions, other.mentions):
+            if self_el < other_el:
+                return True
+            if self_el > other_el:
+                return False
+        return self.type < other.type
 
     def __len__(self):
         return len(self.mentions)
@@ -465,10 +508,10 @@ class EvalRelation:
     type: str
 
     def __eq__(self, other):
-        return (self.head, self.tail, self.type) == (other.head, other.tail, other.type) 
+        return (self.entities, self.type) == (other.entities, other.type) 
 
     def __hash__(self):
-        return hash((self.head, self.tail, self.type))  
+        return hash((tuple(sorted(self.entities)), self.type))  
 
     def __post_init__(self):
         self.entities = {self.head, self.tail}
@@ -491,7 +534,8 @@ class SpanPair:
     coref: int = None
     
     def __hash__(self):
-        return hash((self.span1, self.span2, self.coref))
+        # return hash((self.span1, self.span2, self.coref))
+        return hash((tuple(sorted(self.spans)), self.coref))
 
     def __eq__(self, other):
         return self.spans == other.spans and self.coref == other.coref
@@ -569,6 +613,13 @@ class SpanPair:
 
         return path_union
     
+    @staticmethod
+    def filter_unequal_types(span_pairs):
+        if isinstance(span_pairs, list):
+            return [el for el in span_pairs if el.span1.label_ == el.span2.label_]
+        if isinstance(span_pairs, set):
+            return {el for el in span_pairs if el.span1.label_ == el.span2.label_}
+    
 #%% EntityUtils
 class EntityUtils:
     
@@ -578,12 +629,12 @@ class EntityUtils:
 
     @staticmethod
     def neg_span_pairs_entity(entity, other):
-        return [SpanPair(el1, el2, 0) for el1, el2 in product(entity, other)]
+        return [SpanPair(el1, el2, 0) for el1, el2 in product(entity, other) if el1 != el2]
     
     @classmethod
     def neg_span_pairs(cls, entity, others):
+        # return unlist([cls.neg_span_pairs_entity(entity, el) for el in others if el.attrs['type'] == entity.attrs['type']])    
         return unlist([cls.neg_span_pairs_entity(entity, el) for el in others])    
-
     
     @staticmethod
     def from_span(span):

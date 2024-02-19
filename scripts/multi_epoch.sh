@@ -112,9 +112,17 @@ function validate_checkpoints() {
 
 
 # Call the function with different RUN_NAME values
-# validate_checkpoints "BioRED_ner_p0.01"
-# validate_checkpoints "BioRED_ner_p0.2"
-# validate_checkpoints "BioRED_ner_p0.5"
+# validate_checkpoints "BioRED_ner_hash_fix"
+# validate_checkpoints "BioRED_cluster_hash_fix"
+# validate_checkpoints "BioRED_rc_hash_fix"
+# validate_checkpoints "BioRED_e2e_hash_fix"
+
+# validate_checkpoints "CDR_ner_hash_fix"
+# validate_checkpoints "CDR_cluster_hash_fix"
+# validate_checkpoints "CDR_rc_hash_fix"
+# validate_checkpoints "CDR_e2e_hash_fix"
+
+
 
 # validate_checkpoints "BioRED_cluster_p0.2" 0.3
 # validate_checkpoints "BioRED_cluster_p0.2" 0.4
@@ -132,6 +140,16 @@ function validate_checkpoints() {
 # validate_checkpoints "BioRED_ner_mlp2"
 # validate_checkpoints "BioRED_cluster_mlp2"
 # validate_checkpoints "BioRED_rc_mlp2"
-validate_checkpoints "BioRED_e2e_mlp2"
+# validate_checkpoints "BioRED_e2e_mlp2"
 # validate_checkpoints "BioRED_ner_mlp2"
 # validate_checkpoints "BioRED_e2e_p0.5"
+
+# validate_checkpoints "BioRED_ner_mlp2"
+# validate_checkpoints "BioRED_cluster_mlp2"
+# validate_checkpoints "BioRED_rc_mlp2"
+
+# validate_checkpoints "BioRED_rc_p0.5_2"
+# validate_checkpoints "BioRED_rc_p0.6"
+# validate_checkpoints "BioRED_rc_p0.7"
+
+validate_checkpoints "BioRED_cluster_hash_fix_2"

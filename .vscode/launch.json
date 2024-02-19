@@ -77,7 +77,7 @@
             "program": "spacy_main.py",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["validate", "--config", "ELRE_spacy_config.yaml", "--ckpt_path", "lightning_logs/BioRED_cluster_p0.2/config.yaml", "--model.clusterer_config.config.coref_cutoff", "0.4"],
+            "args": ["validate", "--config", "ELRE_spacy_config.yaml", "--ckpt_path", "lightning_logs/BioRED_cluster_p0.2/config.yaml", "--model.clusterer_config.config.coref_cutoff", "0."],
             "env": {"CUDA_LAUNCH_BLOCKING": "1"}
         },
         {
@@ -97,7 +97,7 @@
             "program": "spacy_main.py",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["validate", "--config", "lightning_logs/BioRED_e2e_mlp2/config.yaml", "--ckpt_path", "lightning_logs/BioRED_e2e_mlp2/checkpoints/epoch=14-step=6000.ckpt", "--trainer.logger.init_args.save_dir", "/home/ubuntu/DocRE", "--trainer.logger.init_args.name", "lightning_logs/BioRED_e2e_mlp2/validation", "--trainer.logger.init_args.version", "epoch_0"],
+            "args": ["validate", "--config", "lightning_logs/BioRED_cluster_hash_fix_2/config.yaml", "--ckpt_path", "lightning_logs/BioRED_cluster_hash_fix_2/checkpoints/epoch=20-step=8400.ckpt", "--trainer.logger.init_args.save_dir", "/home/ubuntu/DocRE", "--trainer.logger.init_args.name", "lightning_logs/BioRED_cluster_hash_fix_2/validation", "--trainer.logger.init_args.version", "test"],
             "env": {"CUDA_LAUNCH_BLOCKING": "1"}
         }    
     ]
