@@ -116,11 +116,11 @@ class PathEmbedder(EnhancedModule):
         self.dropout = Dropout(dropout_prob)
         
 
-    def _pooled_token_embedding(self, span, token_embeddings):
-        if span: # empty span
-            span_token_embeddings = retrieve_token_embeddings_of_path(span, token_embeddings)
-            if span_token_embeddings.size(0) > 0:
-                pooled_embedding = self.token_pooler(span_token_embeddings)
+    def _pooled_token_embedding(self, span_pair, token_embeddings):
+        if span_pair.path: # empty span
+            path_token_embeddings = retrieve_token_embeddings_of_path(span_pair.path, token_embeddings)
+            if path_token_embeddings.size(0) > 0:
+                pooled_embedding = self.token_pooler(path_token_embeddings)
                 pooled_embedding = pooled_embedding.squeeze(0)
             else:
                 pass 
@@ -131,47 +131,70 @@ class PathEmbedder(EnhancedModule):
             return pooled_embedding
         else: 
             try:
-                zero_embedding = torch.zeros(self.pooled_embedding_size, device = 'cuda')
+                # zero_embedding = torch.zeros(self.pooled_embedding_size, device = 'cuda')
+                zero_embedding = torch.zeros(256, device = 'cuda')
             except:
                 zero_embedding = torch.zeros(self.pooled_embedding_size)
             return zero_embedding
 
-    def forward(self, spans, token_embeddings, extra_embeddings = None):
+    def forward(self, span_pairs, token_embeddings):
+
         token_embeddings = self.token_embedder(token_embeddings)
 
         # empty span
-        empty_spans = list()
+        empty_paths = list()
         pooled_embeddings = list()
-        for i, el in enumerate(spans):
-            # if el:
-            pooled_embeddings.append(self._pooled_token_embedding(el, token_embeddings))
-            if not el:
-                empty_spans.append(i)
-           
-        pooled_embeddings = torch.stack(pooled_embeddings)
+        for i, el in enumerate(span_pairs):
+            if el.path:
+                pooled_embeddings.append(self._pooled_token_embedding(el, token_embeddings))
+            else:
+                pooled_embeddings.append(None)
+                empty_paths.append(i)
+        
+        if all([el is None for el in pooled_embeddings]):
+            print('DANGER IN PATH EMBEDDINGS!')
+        
+        if not hasattr(self, 'pooled_length'):
+            for el in pooled_embeddings:
+                if el is not None:
+                    self.pooled_length = el.size(0)
+                    break
 
-        if extra_embeddings is not None:
-            pooled_embeddings = torch.cat((pooled_embeddings, extra_embeddings), dim = 1)
+        for i in empty_paths:
+            pooled_embeddings[i] = torch.zeros(self.pooled_length, device = 'cuda')
+
+        pooled_embeddings = torch.stack(pooled_embeddings)
+        
+        # # empty span
+        # empty_paths = list()
+        # pooled_embeddings = list()
+        # for i, el in enumerate(span_pairs):
+        #     # if el:
+        #     pooled_embeddings.append(self._pooled_token_embedding(el, token_embeddings))
+        #     if not el:
+        #         empty_paths.append(i)
+           
+        # pooled_embeddings = torch.stack(pooled_embeddings)
 
         pooled_embeddings = self.dropout(pooled_embeddings)
-        span_embeddings = self.vector_embedder(pooled_embeddings)
-        
+        path_embeddings = self.vector_embedder(pooled_embeddings)
+
         # empty span
-        if not hasattr(self, 'null_span_embedder'):
-            embedding_dim = span_embeddings.size(-1)
+        if not hasattr(self, 'null_path_embedder'):
+            embedding_dim = path_embeddings.size(-1)
             try: 
-                self.null_span_embedder = Embedding(1, embedding_dim, device = 'cuda')
+                self.null_path_embedder = Embedding(1, embedding_dim, device = 'cuda')
             except:
-                self.null_span_embedder = Embedding(1, embedding_dim)
+                self.null_path_embedder = Embedding(1, embedding_dim)
 
         # empty span
-        for i in empty_spans:
+        for i in empty_paths:
             zero_index = torch.tensor(0, device = self._device())
-            span_embeddings[i] = self.null_span_embedder(zero_index)
+            path_embeddings[i] = self.null_path_embedder(zero_index)
 
-        span_embeddings = self.dropout(span_embeddings)
+        path_embeddings = self.dropout(path_embeddings)
 
-        return span_embeddings
+        return path_embeddings
 
 #%% LM
 class TokenEmbedder(EnhancedModule):
@@ -233,7 +256,9 @@ class Coreference(EnhancedModule):
     def __init__(self, 
                  levenshtein_embedder, levenshtein_gate, span_embedder, 
                  type_embedder, length_embedder, length_difference_embedder, 
-                #  span_pair_embedder, 
+                #  span_pair_embedder,
+                 intervening_span_embedder,  
+                 path_embedder,  
                  num_coref_classes, coref_cutoff, dropout_prob = 0.2):
         super().__init__()
 
@@ -245,6 +270,9 @@ class Coreference(EnhancedModule):
         self.type_embedder = type_embedder
         self.length_embedder = length_embedder
         self.length_difference_embedder = length_difference_embedder
+
+        self.intervening_span_embedder = intervening_span_embedder
+        self.path_embedder = path_embedder
 
         self.coref_cutoff = coref_cutoff
         self.dropout = Dropout(dropout_prob)
@@ -304,6 +332,16 @@ class Coreference(EnhancedModule):
                 levenshtein_embeddings = self.levenshtein_gate(levenshtein_embeddings, span_pair_embeddings)
 
             span_pair_embeddings = torch.cat((span_pair_embeddings, levenshtein_embeddings), dim = 1)
+
+        if self.intervening_span_embedder:
+            intervening_spans = [el.inclusive_span() for el in span_pairs]   
+            intervening_embeddings = self.intervening_span_embedder(intervening_spans, token_embeddings)
+            # intervening_embeddings = torch.stack(intervening_embeddings)
+            span_pair_embeddings = torch.cat((span_pair_embeddings, intervening_embeddings), dim = 1)
+
+        if self.path_embedder:
+            path_embeddings = self.path_embedder(span_pairs, token_embeddings)
+            span_pair_embeddings = torch.cat((span_pair_embeddings, path_embeddings), dim = 1)
 
         # span_pair_embeddings = self.span_pair_embedder(span_pair_embeddings)
 
@@ -396,7 +434,7 @@ class DirectClusterer(EnhancedModule):
     def __init__(self, 
                  levenshtein_embedder, levenshtein_gate, span_embedder, 
                  type_embedder, length_embedder, length_difference_embedder, 
-                #  span_pair_embedder, 
+                 intervening_span_embedder, 
                  num_coref_classes, coref_cutoff, dropout_prob = 0.2):
         super().__init__()
 
@@ -408,6 +446,8 @@ class DirectClusterer(EnhancedModule):
         self.type_embedder = type_embedder
         self.length_embedder = length_embedder
         self.length_difference_embedder = length_difference_embedder
+
+        self.intervening_span_embedder = intervening_span_embedder
 
         self.coref_cutoff = coref_cutoff
         self.dropout = Dropout(dropout_prob)
@@ -472,6 +512,13 @@ class DirectClusterer(EnhancedModule):
                 levenshtein_embeddings = self.levenshtein_gate(levenshtein_embeddings, span_pair_embeddings)
 
             span_pair_embeddings = torch.cat((span_pair_embeddings, levenshtein_embeddings), dim = 1)
+
+        if self.intervening_span_embedder:
+            intervening_spans = [el.inclusive_span() for el in span_pairs]   
+            intervening_embeddings = [self.intervening_span_embedder(el) for el in intervening_spans]
+            intervening_embeddings = torch.stack(intervening_embeddings)
+
+            span_pair_embeddings = torch.cat((span_pair_embeddings, intervening_embeddings), dim = 1)
 
         # span_pair_embeddings = self.span_pair_embedder(span_pair_embeddings)
 

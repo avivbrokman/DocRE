@@ -543,6 +543,7 @@ class SpanPair:
     def __post_init__(self):
         self.spans = {self.span1, self.span2}
         self.type = self.span1.label_
+        self.path = self.path_tokens()
 
     def levenshtein_distance(self):
         return distance(self.span1.text, self.span2.text)
@@ -570,6 +571,16 @@ class SpanPair:
         intervening = self.intervening_token_indices()
         if intervening:
             intervening_span = (min(intervening), max(intervening) + 1)
+            intervening_span = self.span1.doc[intervening_span[0]:intervening_span[1]]
+            SpanUtils.get_subword_indices(intervening_span)
+            return intervening_span
+        
+    def inclusive_span(self):
+        first_token = min(self.span1.start, self.span2.start)
+        last_token = max(self.span1.end, self.span2.end)
+        intervening = set(range(first_token, last_token))
+        if intervening:
+            intervening_span = (min(intervening), max(intervening))
             intervening_span = self.span1.doc[intervening_span[0]:intervening_span[1]]
             SpanUtils.get_subword_indices(intervening_span)
             return intervening_span

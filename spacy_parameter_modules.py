@@ -1,6 +1,6 @@
 #%% libraries
 import torch
-from torch.nn import Module, LazyLinear, Embedding, Linear, Dropout
+from torch.nn import Module, LazyLinear, Embedding, Linear, Dropout, MultiheadAttention
 from torch.nn.functional import mish, max_pool2d, sigmoid
 from torch.nn.modules.lazy import LazyModuleMixin
 from torch.nn.parameter import UninitializedParameter
@@ -27,6 +27,37 @@ def max_pool(x):
         x = x.squeeze(0,1)
         
     return x
+
+# class SelfAttention(MultiheadAttention, EnhancedModule):
+
+#     def rotate_data(self, x):
+#         return x.permute(1, 0, 2)
+
+#     def forward(self, x):
+        
+#         x = self.rotate_data(x)
+#         x = super(MultiheadAttention).forward(x, x, x)
+#         x = self.rotate_data(x)
+
+#         return x
+    
+class SelfAttention(EnhancedModule):
+
+    def __init__(self, embed_dim, num_heads, dropout_prob):
+        super().__init__()
+        self.attention = MultiheadAttention(embed_dim, num_heads, dropout = dropout_prob)
+
+    def rotate_data(self, x):
+        return x.permute(1, 0, 2)
+
+    def forward(self, x):
+        x = x.unsqueeze(0)
+        x = self.rotate_data(x)
+        x, _ = self.attention(x, x, x)
+        x = self.rotate_data(x)
+        x = x.squeeze(0)
+
+        return x
 
 #%% logistic regression (typical prediction layer)
 # class LogisticRegression(EnhancedModule):
@@ -106,17 +137,15 @@ class MLP2Pooler(EnhancedModule):
     
 #%% Attention Pooler
 class AttentionPooler(EnhancedModule):
-    def __init__(self, intermediate_dim, output_dim, dropout_prob = 0.2):
+    def __init__(self, embed_dim, num_heads, dropout_prob = 0.2):
         super().__init__()
 
-        self.mlp = MLP2(intermediate_dim, output_dim, final_activation = True)
-        self.dropout = Dropout(dropout_prob)
+        self.attention = SelfAttention(embed_dim, num_heads, dropout_prob).to('cuda')
         
     def forward(self, x):
 
-        x = self.mlp(x)
+        x = self.attention(x)
         x = max_pool(x)
-        x = self.dropout(x)
         
         return x
 

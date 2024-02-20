@@ -97,8 +97,19 @@
             "program": "spacy_main.py",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["validate", "--config", "lightning_logs/BioRED_cluster_hash_fix_2/config.yaml", "--ckpt_path", "lightning_logs/BioRED_cluster_hash_fix_2/checkpoints/epoch=20-step=8400.ckpt", "--trainer.logger.init_args.save_dir", "/home/ubuntu/DocRE", "--trainer.logger.init_args.name", "lightning_logs/BioRED_cluster_hash_fix_2/validation", "--trainer.logger.init_args.version", "test"],
+            "args": ["validate", "--config", "lightning_logs/BioRED_cluster_path/config.yaml", "--ckpt_path", "lightning_logs/BioRED_cluster_path/checkpoints/epoch=19-step=8000.ckpt", "--trainer.logger.init_args.save_dir", "/home/ubuntu/DocRE", "--trainer.logger.init_args.name", "lightning_logs/BioRED_cluster_path/validation", "--trainer.logger.init_args.version", "test"],
             "env": {"CUDA_LAUNCH_BLOCKING": "1"}
-        }    
+        },
+        {
+            "name": "full fit",
+            "type": "python",
+            "request": "launch",
+            "program": "spacy_main.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["fit", "--config", "ELRE_spacy_config.yaml",
+            "--model.task", "ner", "--trainer.logger.init_args.save_dir", "/home/ubuntu/DocRE", "--trainer.logger.init_args.name", "lightning_logs", "--trainer.logger.init_args.version", "BioRED_ner"],
+            "env": {"CUDA_LAUNCH_BLOCKING": "1"}
+        }     
     ]
 }

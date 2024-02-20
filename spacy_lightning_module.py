@@ -54,10 +54,10 @@ class ELRELightningModule(LightningModule):
                 rc_config['config']['num_relation_classes'] -= 1
 
         # instantiates neural components
-        self.lm = AutoModel.from_pretrained(lm_checkpoint)
+        # self.lm = AutoModel.from_pretrained(lm_checkpoint)
 
         # allows language model to handle longer sequences
-        self.expand_position_embeddings(1024)
+        # self.expand_position_embeddings(1024)
 
         # dropout probability
         self.dropout_prob = dropout_prob
@@ -131,12 +131,20 @@ class ELRELightningModule(LightningModule):
         if self.task in ['ner', 'e2e']:
             self.max_span_length = max_span_length
 
+        self.lm = AutoModel.from_pretrained(lm_checkpoint)
+        self.expand_position_embeddings(1024)
+
+
         # creates lists for storage of details of results
         # self.validation_details = list()
         # self.test_details = list()
 
         # self.validation_performance = list()
         # self.test_performance = list()
+            
+        # self.linear_test = torch.nn.Linear(10,2)
+        # self.lazy_linear_test = torch.nn.LazyLinear(2)
+        # self.attn_test = torch.nn.MultiheadAttention(10)
 
     def on_load_checkpoint(self, checkpoint):
         super().on_load_checkpoint(checkpoint)
@@ -338,7 +346,7 @@ class ELRELightningModule(LightningModule):
 
     def filter_candidate_spans(self, spans):
         spans = [el for el in spans if len(el) < self.max_span_length]
-        spans = [el for el in spans if SpanUtils.has_noun(el)]
+        # spans = [el for el in spans if SpanUtils.has_noun(el)]
         return spans
 
     def ner_inference_step(self, example, token_embeddings):
@@ -427,9 +435,10 @@ class ELRELightningModule(LightningModule):
 
     def training_step(self, example, example_index):
 
-        if example_index == 128:
-            pass
+        # if example_index == 128:
+        #     pass
         # print('training step')
+        
 
         token_embeddings = self.lm_step(example)
 
@@ -465,7 +474,6 @@ class ELRELightningModule(LightningModule):
         valid_type_combinations |= set((el[1], el[0]) for el in valid_type_combinations)
 
         return [el for el in relations if (el.head.attrs['type'], el.tail.attrs['type']) in valid_type_combinations]
-
 
     def inference_step(self, example, example_index):
         # print('inference step')
@@ -586,21 +594,41 @@ class ELRELightningModule(LightningModule):
     def _compute_calculators(self, calculator_dict):
         return {key: value.compute() for key, value in calculator_dict.items()}
 
-    def _prepare_save_objects(self):
-        if not hasattr(self, 'validation_details'):
-            self.validation_details = list()
-        elif hasattr(self, 'validation_details'):
-            if isinstance(self.validation_details[0], dict):
-                self.validation_details = [self.validation_details]
-            self.validation_details.append(list())
+    def on_train_start(self):
+        
+        self.train_loss = []
 
-        if not hasattr(self, 'validation_performance'):
-            pass
-        elif hasattr(self, 'validation_performance'):
-            if isinstance(self.validation_performance, dict):
-                self.validation_performance = [self.validation_performance]
+        if self.trainer.check_val_every_n_epoch == 1:
+            self.validate_in_run = True
+        elif self.trainer.check_val_every_n_epoch == 1000:
+            self.validate_in_run = False 
+
+        if self.validate_in_run:
+            self.validation_performance = list()
+
+    def _prepare_save_objects(self):
+        if self.validate_in_run:
+            self.validation_performance.append(list())
+        else:
+            self.validation_performance = list()
+
+        self.validation_details = list()
+
+        # if not hasattr(self, 'validation_details'):
+        #     self.validation_details = list()
+        # elif hasattr(self, 'validation_details'):
+        #     if isinstance(self.validation_details[0], dict):
+        #         self.validation_details = [self.validation_details]
+        #     self.validation_details.append(list())
+
+        # if not hasattr(self, 'validation_performance'):
+        #     pass
+        # elif hasattr(self, 'validation_performance'):
+        #     if isinstance(self.validation_performance, dict):
+        #         self.validation_performance = [self.validation_performance]
 
     def on_validation_start(self):
+        
         self._prepare_save_objects()
 
     def _get_performance(self):
@@ -616,21 +644,41 @@ class ELRELightningModule(LightningModule):
         return performance
     
     def _update_performance(self, performance):
-        if not hasattr(self, 'validation_performance'):
-            self.validation_performance = performance
-        elif hasattr(self, 'validation_performance'):
+        
+        if self.validate_in_run:
             self.validation_performance.append(performance)
+        else: 
+            self.validation_performance = performance
+        
+        # if not hasattr(self, 'validation_performance'):
+        #     self.validation_performance = performance
+        # elif hasattr(self, 'validation_performance'):
+        #     self.validation_performance.append(performance)
 
     def _extract_epoch(self):
-        match = re.search(r'epoch=(\d+)', self.trainer.ckpt_path)
-        epoch_number = int(match.group(1))
+        if self.validate_in_run:
+            epoch_number = self.trainer.current_epoch
+        else:
+            match = re.search(r'epoch=(\d+)', self.trainer.ckpt_path)
+            epoch_number = int(match.group(1))
+        
         return epoch_number
 
     def _save_inference_output(self):
         epoch_num = self._extract_epoch()
         
-        save_json(self.validation_performance, path.join(self.logger.log_dir, f'performance_epoch{epoch_num}.json'))
+        if self.validate_in_run:
+            save_json(self.validation_performance, path.join(self.logger.log_dir, f'performance.json'))
+        else:
+            save_json(self.validation_performance, path.join(self.logger.log_dir, f'performance_epoch{epoch_num}.json'))
+
         torch.save(self.validation_details, path.join(self.logger.log_dir,f'validation_details{epoch_num}.save'))
+
+        # if isinstance(self.validation_performance, list):
+        #     save_json(self.validation_performance, path.join(self.logger.log_dir, f'performance.json'))
+        # elif isinstance(self.validation_performance, dict):
+        #     save_json(self.validation_performance, path.join(self.logger.log_dir, f'performance_epoch{epoch_num}.json'))
+        # torch.save(self.validation_details, path.join(self.logger.log_dir,f'validation_details{epoch_num}.save'))
 
     def _reset_all_calculators(self):
         # resetting calculators
@@ -672,9 +720,6 @@ class ELRELightningModule(LightningModule):
 
         
         return AdamW(optimizer_components)
-
-    def on_train_start(self):
-        self.train_loss = []
 
     def on_before_backward(self, loss):
         self.train_loss[-1] += loss.item()
