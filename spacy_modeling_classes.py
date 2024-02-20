@@ -613,8 +613,8 @@ class BaseRelationClassifier(EnhancedModule):
 
     def CDR_candidate_relation_constructor(self, entities):
     
-        chemicals = set(el for el in entities if el.type == 'chemical')
-        diseases = set(el for el in entities if el.type == 'disease')
+        chemicals = set(el for el in entities if el.attrs['type'] == 'Chemical')
+        diseases = set(el for el in entities if el.attrs['type'] == 'Disease')
 
         relations = set()
         relations.update(set(Relation(el1, el2) for el1, el2 in product(chemicals)))

@@ -31,6 +31,12 @@ train ner BioRED ""
 train cluster BioRED ""
 train rc BioRED ""
 train e2e BioRED ""
+train rc BioRED "--model.dropout_prob 0.5" ""
+train e2e BioRED "--model.dropout_prob 0.5" ""
+train rc BioRED "--model.dropout_prob 0.6" ""
+train rc BioRED "--model.dropout_prob 0.7" ""
+
+
 # train cluster BioRED ""
 # train rc BioRED mlp2_p0.6
 # train rc BioRED mlp2_p0.6

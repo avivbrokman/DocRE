@@ -517,13 +517,10 @@ class EvalRelation:
         self.entities = {self.head, self.tail}
 
     @classmethod
-    def from_relation(cls, relation, type_ = None):
+    def from_relation(cls, relation, type_):
         head = EvalEntity.from_entity(relation.head)
         tail = EvalEntity.from_entity(relation.tail)
         
-        if type_ is None:
-            type_ = relation.type
-
         return cls(head, tail, type_)
 
 #%% SpanPair

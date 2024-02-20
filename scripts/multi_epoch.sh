@@ -152,4 +152,7 @@ function validate_checkpoints() {
 # validate_checkpoints "BioRED_rc_p0.6"
 # validate_checkpoints "BioRED_rc_p0.7"
 
-validate_checkpoints "BioRED_cluster_path"
+validate_checkpoints "BioRED_rc"
+validate_checkpoints "BioRED_rc_"
+validate_checkpoints "BioRED_e2e"
+validate_checkpoints "BioRED_e2e_"

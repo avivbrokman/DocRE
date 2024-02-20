@@ -607,10 +607,10 @@ class ELRELightningModule(LightningModule):
             self.validation_performance = list()
 
     def _prepare_save_objects(self):
-        if self.validate_in_run:
-            self.validation_performance.append(list())
-        else:
-            self.validation_performance = list()
+        # if self.validate_in_run:
+        #     self.validation_performance.append(list())
+        # else:
+        #     self.validation_performance = list()
 
         self.validation_details = list()
 
